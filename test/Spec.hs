@@ -9,6 +9,7 @@ import Debug.SimpleReflect
 import Debug.SimpleReflect.Expr
 
 import Data.List   (intercalate)
+import Data.Maybe  (isNothing)
 import Control.Monad (forM)
 import Control.Applicative ((<|>))
 import System.Exit (exitFailure)
@@ -285,6 +286,54 @@ prop_reducePreservesValue ast =
     e    = evalA ast :: Expr
     vals = [ v | s <- take 200 (reduction e), Just v <- [stepValue s] ]
 
+-- | A closed expression must reduce all the way to a single constant.
+prop_closedReducesToConstant :: AST -> Property
+prop_closedReducesToConstant ast =
+    finite ref ==>
+      counterexample ("expr: " ++ show e) $
+        case stepValue (last (take 200 (reduction e))) of
+          Just _  -> True
+          Nothing -> False
+  where
+    ref = evalA ast :: Double
+    e   = evalA ast :: Expr
+
+------------------------------------------------------------------------------
+-- Structural properties over arbitrary (possibly symbolic) expressions.
+-- These need no reference value, so they also exercise the symbolic rewrites,
+-- variables, and the full operator set (including ** with small exponents).
+--
+-- (Value preservation of the *symbolic* rewrites can't be property-checked:
+-- the library has no eval-under-assignment, so there's no value to compare a
+-- simplified symbolic expression against. Those are covered by the example
+-- cases above.)
+------------------------------------------------------------------------------
+
+-- | A random expression over a few variables and the full operator set.
+genExpr :: Gen Expr
+genExpr = sized go
+  where
+    leaf   = oneof [ fromInteger <$> choose (1, 9), elements [a, b, c, x, y] ]
+    powTo base k = base ** fromInteger (k :: Integer)
+    go n | n <= 1    = leaf
+         | otherwise = oneof
+             [ leaf
+             , negate <$> half, abs <$> half, recip <$> half
+             , (+) <$> half <*> half, (-) <$> half <*> half
+             , (*) <$> half <*> half, (/) <$> half <*> half
+             , powTo <$> half <*> choose (0, 3) ]
+      where half = go (n `div` 2)
+
+-- | Reduction always reaches a fixed point — no infinite rewrite loop.
+prop_reduceTerminates :: Property
+prop_reduceTerminates = forAll genExpr $ \e ->
+    counterexample (show e) $ isNothing (reduced (last (take 1000 (reduction e))))
+
+-- | 'show' is total and finite for any generated expression.
+prop_showTotal :: Property
+prop_showTotal = forAll genExpr $ \e ->
+    property (length (show e) >= 0)
+
 main :: IO ()
 main = do
     results <- forM cases $ \(label, actual, expected) -> do
@@ -299,8 +348,15 @@ main = do
         total  = length results
     putStrLn $ "\n" ++ show passed ++ " / " ++ show total ++ " string cases passed"
 
-    putStrLn "\nproperty: reduction preserves numeric value"
-    qc <- quickCheckWithResult stdArgs{ maxSize = 6, maxSuccess = 2000 }
-                               prop_reducePreservesValue
+    let runProp :: Testable p => String -> p -> IO Bool
+        runProp name p = do
+            putStrLn ("\nproperty: " ++ name)
+            isSuccess <$> quickCheckWithResult stdArgs{ maxSize = 6, maxSuccess = 2000 } p
+    props <- sequence
+        [ runProp "reduction preserves numeric value" prop_reducePreservesValue
+        , runProp "closed expr reduces to a constant"  prop_closedReducesToConstant
+        , runProp "reduction terminates (fixed point)" prop_reduceTerminates
+        , runProp "show is total"                      prop_showTotal
+        ]
 
-    if passed == total && isSuccess qc then return () else exitFailure
+    if passed == total && and props then return () else exitFailure
