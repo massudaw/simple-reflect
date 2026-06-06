@@ -95,6 +95,9 @@ cases =
   , ("abs (negate (10 - 3 - 2))",  steps (abs (negate (10 - 3 - 2))), "abs 5 => abs 5 => abs 5 => abs 5 => abs 5 => 5")
   , ("abs (abs (10 - 3 - 2))",     steps (abs (abs (10 - 3 - 2))), "abs (10 - 3 - 2) => abs (10 - 3 - 2) => abs (7 - 2) => abs 5 => abs 5 => 5")
   , ("signum (signum (10 - 3 - 2))", steps (signum (signum (10 - 3 - 2))), "signum (10 - 3 - 2) => signum (10 - 3 - 2) => signum (7 - 2) => signum 5 => signum 1 => 1")
+  , ("recip 1 = 1",              show (recip 1),          "1.0")
+  , ("recip (recip a) = a",       show (recip (recip a)),  "a")
+  , ("recip (recip (10 - 3 - 2))", steps (recip (recip (10 - 3 - 2))), "10 - 3 - 2 => 10 - 3 - 2 => 7 - 2 => 5 => recip 0.2 => 5.0")
 
   -- Sign normalization: a + (negation) => a - x, and vice versa -----------
   , ("a + negate b = a - b",      show (a + negate b),     "a - b")

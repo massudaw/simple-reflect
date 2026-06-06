@@ -58,6 +58,7 @@ data Expr
    , negated'    :: Maybe Expr    -- ^ If this is @negate e@, the operand @e@ (used for sign normalization)
    , absed'      :: Maybe Expr    -- ^ If this is @abs e@, the operand @e@
    , signumed'   :: Maybe Expr    -- ^ If this is @signum e@, the operand @e@
+   , reciped'    :: Maybe Expr    -- ^ If this is @recip e@, the operand @e@
    }
    | BinExpr
    { operation :: BinOp
@@ -98,6 +99,10 @@ asSignum :: Expr -> Maybe Expr
 asSignum Expr{ signumed' = s } = s
 asSignum _                     = Nothing
 
+asRecip :: Expr -> Maybe Expr
+asRecip Expr{ reciped' = r } = r
+asRecip _                    = Nothing
+
 rewriteReducedBinOp bin@(BinExpr expr argL argR )=
   let rr = applyBinOp expr argL argR
   in fromMaybe bin $
@@ -124,6 +129,7 @@ emptyExpr = Expr { showExpr'   = \_ -> showString ""
                  , negated'    = Nothing
                  , absed'      = Nothing
                  , signumed'   = Nothing
+                 , reciped'    = Nothing
                  }
 
 ------------------------------------------------------------------------------
@@ -296,6 +302,17 @@ distributeUnarySignum op expr
     | (BinExpr exprBin l r) <- expr, isConstant r = BinExpr exprBin l (withReduce op r )
     | otherwise                                   = op expr
 
+recipExpr :: Expr -> Expr
+recipExpr a = (fun "recip" a) { reciped' = Just a }
+
+distributeUnaryRecip :: (Expr -> Expr) -> Expr -> Expr
+distributeUnaryRecip op expr
+    | expr == 1                     = expr
+    | Just expr' <- asRecip expr    = expr'
+    | (BinExpr exprBin l r) <- expr, isConstant l = BinExpr exprBin (withReduce op l ) r
+    | (BinExpr exprBin l r) <- expr, isConstant r = BinExpr exprBin l (withReduce op r )
+    | otherwise                     = op expr
+
 
 identityRule ident = (\a b r  -> if a == ident then b else  (if b == ident then a else r))
 annihilateRule zero = (\a b r  -> if abs a < 1e-15 || abs b < 1e-15 then zero else  r)
@@ -431,7 +448,7 @@ instance Integral Expr where
 
 instance Fractional Expr where
     (/)   = withReduce2Identity 1 $ mkBinOp " / " False False $ op InfixL 7 " / " `dOp2` (/)
-    recip = withReduce  $ fun "recip"  `dOp` recip
+    recip = withReduce  $ distributeUnaryRecip (recipExpr `dOp` recip)
     fromRational r = fromDouble (fromRational r)
 
 instance RealFrac Expr where
