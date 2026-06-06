@@ -175,6 +175,12 @@ subShow a b
     | Just b' <- asNegation b = op InfixL 6 " + " a b'
     | otherwise               = op InfixL 6 " - " a b
 
+mulShow :: Expr -> Expr -> Expr
+mulShow a b
+    | Just b' <- asRecip b = op InfixL 7 " / " a b'
+    | Just a' <- asRecip a = op InfixL 7 " / " b a'
+    | otherwise            = op InfixL 7 " * " a b
+
 ------------------------------------------------------------------------------
 -- Adding numeric results
 ------------------------------------------------------------------------------
@@ -312,6 +318,29 @@ distributeUnaryRecip op expr
     | (BinExpr exprBin l r) <- expr, isConstant l = BinExpr exprBin (withReduce op l ) r
     | (BinExpr exprBin l r) <- expr, isConstant r = BinExpr exprBin l (withReduce op r )
     | otherwise                     = op expr
+powRule :: Expr -> Expr -> Expr -> Expr
+powRule a b fallback
+    | b == 0    = 1
+    | a == 1    = 1
+    | a == 0    = 0
+    | b == 1    = a
+    | otherwise = fallback
+
+withReduce2Pow :: BinOp -> (Expr -> Expr -> Expr)
+withReduce2Pow r a b =
+                    let rr = powRule a b (applyBinOp r a b)
+                        ra = reduced a
+                        rb = reduced b
+                        red = (\a' b' -> powRule a' b' (withReduce2Pow r a' b')) <$> ra <*> rb
+                                     <|> (\a' -> powRule a' b (withReduce2Pow r a' b)) <$> ra
+                                     <|> (\b' -> powRule a b' (withReduce2Pow r a b')) <$> rb
+                                     <|> fromInteger <$> intExpr    rr
+                                     <|> fromDouble  <$> doubleExpr rr
+                    in
+                    case rr of
+                      Expr {} ->
+                          rr { reduced' =  red }
+                      BinExpr op l rgt -> fromMaybe (distributeConstant op l rgt) red
 
 
 identityRule ident = (\a b r  -> if a == ident then b else  (if b == ident then a else r))
@@ -421,7 +450,7 @@ instance Ord Expr where
 instance Num Expr where
     (+)    = withReduce2IdentityDistribute 0 $ mkBinOp " + " True  True  $ addShow `iOp2` (+)   `dOp2` (+)
     (-)    = \a b -> a + negate b
-    (*)    = withReduce2AnnihilateAndIdentity 0 1 $ mkBinOp " * " True True $ op InfixL 7 " * " `iOp2` (*)   `dOp2` (*)
+    (*)    = withReduce2AnnihilateAndIdentity 0 1 $ mkBinOp " * " True True $ mulShow `iOp2` (*)   `dOp2` (*)
     negate = withReduce  $ distributeUnary (negateExpr `iOp` negate `dOp` negate)
     abs    = withReduce  $ distributeUnaryAbs (absExpr `iOp` abs    `dOp` abs)
     signum = withReduce  $ distributeUnarySignum (signumExpr `iOp` signum `dOp` signum)
@@ -447,7 +476,7 @@ instance Integral Expr where
           _      -> error $ "not an integer: " ++ show someExpr
 
 instance Fractional Expr where
-    (/)   = withReduce2Identity 1 $ mkBinOp " / " False False $ op InfixL 7 " / " `dOp2` (/)
+    (/)   = \a b -> a * recip b
     recip = withReduce  $ distributeUnaryRecip (recipExpr `dOp` recip)
     fromRational r = fromDouble (fromRational r)
 
@@ -468,7 +497,7 @@ instance Floating Expr where
     exp   = withReduce  $ fun "exp"   `dOp` exp
     sqrt  = withReduce  $ fun "sqrt"  `dOp` sqrt
     log   = withReduce  $ fun "log"   `dOp` log
-    (**)  = withReduce2Identity 1 $ mkBinOp "**" False False $ op InfixR 8 "**" `dOp2` (**)
+    (**)  = withReduce2Pow $ mkBinOp "**" False False $ op InfixR 8 "**" `dOp2` (**)
     sin   = withReduce  $ fun "sin"   `dOp` sin
     cos   = withReduce  $ fun "cos"   `dOp` cos
     sinh  = withReduce  $ fun "sinh"  `dOp` sinh

@@ -60,7 +60,8 @@ cases =
   -- Soundness: constants must NOT cross non-commutative operators ----------
   , ("2 * (x - 3) untouched", show (2 * (x - 3)),          "2 * (x - 3)")
   , ("2*(x-3)*4 = 8*(x-3)",   show (2 * (x - 3) * 4),      "8 * (x - 3)")
-  , ("5 * (x / 2) untouched", show (5 * (x / 2)),          "5 * (x / 2)")
+  , ("5 * (x / 2) normalization", show (5 * (x / 2)),      "x * 2.5")
+  , ("(x * 3) / 2 = x * 1.5", show ((x * 3) / 2),          "x * 1.5")
   , ("(a - b) * 3 untouched", show ((a - b) * 3),          "(a - b) * 3")
   , ("2 * (x + 3) untouched", show (2 * (x + 3)),          "2 * (x + 3)")
 
@@ -88,6 +89,7 @@ cases =
   , ("signum a unchanged",        show (signum a),         "signum a")
   , ("negate (negate a) = a",     show (negate (negate a)), "a")
   , ("negate 0 = 0",              show (negate 0),         "0")
+  , ("negate (negate 0) = 0",     show (negate (negate 0)), "0")
   , ("negate (negate (10 - 3 - 2))", steps (negate (negate (10 - 3 - 2))), "5 => 5 => 5 => 5 => 5 => 5")
   , ("abs (negate a) = abs a",    show (abs (negate a)),   "abs a")
   , ("abs (abs a) = abs a",       show (abs (abs a)),      "abs a")
@@ -98,6 +100,39 @@ cases =
   , ("recip 1 = 1",              show (recip 1),          "1.0")
   , ("recip (recip a) = a",       show (recip (recip a)),  "a")
   , ("recip (recip (10 - 3 - 2))", steps (recip (recip (10 - 3 - 2))), "10 - 3 - 2 => 10 - 3 - 2 => 7 - 2 => 5 => recip 0.2 => 5.0")
+  , ("recip (recip (a - b))",     show (recip (recip (a - b))), "a - b")
+  , ("recip 0 = Infinity",       steps (recip 0),         "recip 0 => Infinity")
+  , ("recip (fromInteger 1) = 1", show (recip (fromInteger 1 :: Expr)), "1")
+  , ("negate (negate (a - b))",   show (negate (negate (a - b))), "a - b")
+  , ("abs (negate (a - b))",      show (abs (negate (a - b))), "abs (a - b)")
+  , ("abs (abs (a - b))",         show (abs (abs (a - b))), "abs (a - b)")
+  , ("signum (signum (a - b))",   show (signum (signum (a - b))), "signum (a - b)")
+  , ("negate 0.0 = 0.0",          show (negate (0.0 :: Expr)), "0.0")
+  , ("negate (negate 0.0) = 0.0", show (negate (negate (0.0 :: Expr))), "0.0")
+
+  -- Specific division and multiplication-by-negative-one tests ------------
+  , ("x / y = x / y",            show (x / y),            "x / y")
+  , ("x / 5 = x * 0.2",          show (x / 5),            "x * 0.2")
+  , ("5 / x = 5 / x",            show (5 / x),            "5 / x")
+  , ("5 / 2 = 5 / 2",            show (5 / 2 :: Expr),    "5 / 2")
+  , ("1 / recip x = x",          show (1 / recip x),      "x")
+  , ("(a / 2) * 2 = a * 1.0",    show ((a / 2) * 2),      "a * 1.0")
+  , ("(a * 2) / 2 = a * 1.0",    show ((a * 2) / 2),      "a * 1.0")
+  , ("(-1) * (-x) = x",          show ((-1) * (-x)),      "x")
+  , ("(-1) * (-1) = 1",          show (((-1) :: Expr) * (-1)), "1")
+
+  -- Specific exponentiation identity tests ---------------------------------
+  , ("1 ** a = 1",               show (1 ** a),           "1")
+  , ("a ** 0 = 1",               show (a ** 0),           "1")
+  , ("0 ** a = 0",               show (0 ** a),           "0")
+  , ("0 ** 0 = 1",               show (0 ** 0 :: Expr),   "1")
+  , ("1.0 ** a = 1",             show (1.0 ** a),         "1")
+  , ("a ** 0.0 = 1",             show (a ** 0.0),         "1")
+  , ("0.0 ** a = 0",             show (0.0 ** a),         "0")
+  , ("a ** 1.0 = a",             show (a ** 1.0),         "a")
+  , ("(2 - 1) ** a = 1",         steps ((2 - 1) ** a),    "1 => 1")
+  , ("(2 - 2) ** a = 0",         steps ((2 - 2) ** a),    "0 => 0")
+  , ("a ** (2 - 2) = 1",         steps (a ** (2 - 2)),    "1 => 1")
 
   -- Sign normalization: a + (negation) => a - x, and vice versa -----------
   , ("a + negate b = a - b",      show (a + negate b),     "a - b")
@@ -106,6 +141,9 @@ cases =
   , ("x + (-1) = x - 1",          show (x + (-1)),         "x - 1")
   , ("(-1) + x = x - 1",          show ((-1) + x),         "x - 1")
   , ("x - (-3) = x + 3",          show (x - (-3)),         "x + 3")
+  , ("x + (-1.5) = x - 1.5",      show (x + (-1.5)),       "x - 1.5")
+  , ("(-1.5) + x = x - 1.5",      show ((-1.5) + x),       "x - 1.5")
+  , ("x - (-1.5) = x + 1.5",      show (x - (-1.5)),       "x + 1.5")
   , ("x + 2 + (-3) = x - 1",      show (x + 2 + (-3)),     "x - 1")
   , ("x + negate (a+b)",          show (x + negate (a + b)), "x - (a + b)")
 
