@@ -10,7 +10,9 @@ import Debug.SimpleReflect.Expr
 
 import Data.List   (intercalate)
 import Control.Monad (forM)
+import Control.Applicative ((<|>))
 import System.Exit (exitFailure)
+import Test.QuickCheck
 
 -- | Render every reduction step, joined by @ => @.
 steps :: Expr -> String
@@ -220,6 +222,69 @@ cases =
         "[x,f x,f (f x),f (f (f x)),f (f (f (f x)))]")
   ]
 
+------------------------------------------------------------------------------
+-- Property-based soundness test
+--
+-- A closed arithmetic expression, interpreted polymorphically so the SAME
+-- structure can be evaluated both as a 'Double' (the reference value) and as
+-- an 'Expr' (through the whole simplification machinery). If any rewrite
+-- changed the value, the property below catches it.
+--
+-- Restricted to the value-preserving arithmetic core (+, -, *, /, negate,
+-- recip, abs). ** / log / sqrt / trig are excluded on purpose: some of their
+-- rewrites (e.g. distributing a power over a product) are only valid on a
+-- restricted domain, which is documented rather than universally true.
+------------------------------------------------------------------------------
+
+data AST = Lit Integer
+         | Neg AST | Abs AST | Recip AST
+         | Add AST AST | Sub AST AST | Mul AST AST | Div AST AST
+  deriving Show
+
+evalA :: Fractional a => AST -> a
+evalA (Lit n)   = fromInteger n
+evalA (Neg x)   = negate (evalA x)
+evalA (Abs x)   = abs    (evalA x)
+evalA (Recip x) = recip  (evalA x)
+evalA (Add x y) = evalA x + evalA y
+evalA (Sub x y) = evalA x - evalA y
+evalA (Mul x y) = evalA x * evalA y
+evalA (Div x y) = evalA x / evalA y
+
+instance Arbitrary AST where
+  arbitrary = sized go
+    where
+      leaf = Lit <$> choose (1, 9)
+      go n | n <= 1    = leaf
+           | otherwise = oneof
+               [ leaf
+               , Neg <$> half, Abs <$> half, Recip <$> half
+               , Add <$> half <*> half, Sub <$> half <*> half
+               , Mul <$> half <*> half, Div <$> half <*> half ]
+        where half = go (n `div` 2)
+
+-- | The numeric value carried by a reduction step, if any.
+stepValue :: Expr -> Maybe Double
+stepValue s = doubleExpr s <|> (fromInteger <$> intExpr s)
+
+finite :: Double -> Bool
+finite x = not (isNaN x || isInfinite x)
+
+close :: Double -> Double -> Bool
+close a b = abs (a - b) <= 1e-6 * (1 + abs a + abs b)
+
+-- | Every numeric reduction step of a closed expression must equal its true
+--   value (and the chain must actually reach a number).
+prop_reducePreservesValue :: AST -> Property
+prop_reducePreservesValue ast =
+    finite ref ==>
+      counterexample ("expr: " ++ show e ++ "\nref:  " ++ show ref) $
+        not (null vals) && all (`close` ref) vals
+  where
+    ref  = evalA ast :: Double
+    e    = evalA ast :: Expr
+    vals = [ v | s <- take 200 (reduction e), Just v <- [stepValue s] ]
+
 main :: IO ()
 main = do
     results <- forM cases $ \(label, actual, expected) -> do
@@ -232,5 +297,10 @@ main = do
         return ok
     let passed = length (filter id results)
         total  = length results
-    putStrLn $ "\n" ++ show passed ++ " / " ++ show total ++ " passed"
-    if passed == total then return () else exitFailure
+    putStrLn $ "\n" ++ show passed ++ " / " ++ show total ++ " string cases passed"
+
+    putStrLn "\nproperty: reduction preserves numeric value"
+    qc <- quickCheckWithResult stdArgs{ maxSize = 6, maxSuccess = 2000 }
+                               prop_reducePreservesValue
+
+    if passed == total && isSuccess qc then return () else exitFailure
