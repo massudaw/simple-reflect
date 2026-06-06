@@ -141,6 +141,13 @@ cases =
   , ("exp (log a) = a",          show (exp (log a)),      "a")
   , ("log (exp (2 - 1))",        steps (log (exp (2 - 1))), "2 - 1 => 2 - 1 => 1 => log 2.718281828459045 => 1.0")
 
+  -- Specific square root & radical tests -----------------------------------
+  , ("sqrt 0 = 0",               show (sqrt 0 :: Expr),   "0")
+  , ("sqrt 1 = 1",               show (sqrt 1 :: Expr),   "1")
+  , ("sqrt (recip a) = recip (sqrt a)", show (sqrt (recip a)), "recip (sqrt a)")
+  , ("sqrt (recip (2 - 1))",     steps (sqrt (recip (2 - 1))), "1 => 1 => 1 => 1 => 1")
+
+
 
   -- Sign normalization: a + (negation) => a - x, and vice versa -----------
   , ("a + negate b = a - b",      show (a + negate b),     "a - b")

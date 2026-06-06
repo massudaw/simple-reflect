@@ -61,6 +61,7 @@ data Expr
    , reciped'    :: Maybe Expr    -- ^ If this is @recip e@, the operand @e@
    , exped'      :: Maybe Expr
    , logged'     :: Maybe Expr
+   , sqrted'     :: Maybe Expr
    }
    | BinExpr
    { operation :: BinOp
@@ -113,6 +114,10 @@ asLog :: Expr -> Maybe Expr
 asLog Expr{ logged' = l } = l
 asLog _                   = Nothing
 
+asSqrt :: Expr -> Maybe Expr
+asSqrt Expr{ sqrted' = s } = s
+asSqrt _                   = Nothing
+
 rewriteReducedBinOp bin@(BinExpr expr argL argR )=
   let rr = applyBinOp expr argL argR
   in fromMaybe bin $
@@ -142,6 +147,7 @@ emptyExpr = Expr { showExpr'   = \_ -> showString ""
                  , reciped'    = Nothing
                  , exped'      = Nothing
                  , logged'     = Nothing
+                 , sqrted'     = Nothing
                  }
 
 ------------------------------------------------------------------------------
@@ -349,6 +355,16 @@ distributeUnaryLog op expr
     | Just expr' <- asExp expr    = expr'
     | otherwise                   = op expr
 
+sqrtExpr :: Expr -> Expr
+sqrtExpr a = (fun "sqrt" a) { sqrted' = Just a }
+
+distributeUnarySqrt :: (Expr -> Expr) -> Expr -> Expr
+distributeUnarySqrt op expr
+    | expr == 0                   = 0
+    | expr == 1                   = 1
+    | Just expr' <- asRecip expr  = recip (sqrt expr')
+    | otherwise                   = op expr
+
 powRule :: Expr -> Expr -> Expr -> Expr
 powRule a b fallback
     | b == 0    = 1
@@ -526,7 +542,7 @@ fromDouble d = (lift d) { doubleExpr' = Just d }
 instance Floating Expr where
     pi    = (var "pi") { doubleExpr' = Just pi }
     exp   = withReduce  $ distributeUnaryExp (expExpr   `dOp` exp)
-    sqrt  = withReduce  $ fun "sqrt"  `dOp` sqrt
+    sqrt  = withReduce  $ distributeUnarySqrt (sqrtExpr `dOp` sqrt)
     log   = withReduce  $ distributeUnaryLog (logExpr   `dOp` log)
     (**)  = withReduce2Pow $ mkBinOp "**" False False $ op InfixR 8 "**" `dOp2` (**)
     sin   = withReduce  $ fun "sin"   `dOp` sin
