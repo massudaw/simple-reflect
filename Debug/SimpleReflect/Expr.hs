@@ -534,7 +534,24 @@ withReduce2Identity ident r a b =
                           rr { reduced' =  red }
                       BinExpr op l rgt -> fromMaybe (distributeConstant op l rgt) red
 
--- | Identity simplification together with constant redistribution, for a
+withReduce2Monoid :: BinOp -> (Expr -> Expr -> Expr)
+withReduce2Monoid r a b =
+                    let isMempty x = show x == "mempty"
+                        rr = if isMempty a then b else (if isMempty b then a else applyBinOp r a b)
+                        ra = reduced a
+                        rb = reduced b
+                        red = (\a' b' -> if isMempty a' then b' else (if isMempty b' then a' else withReduce2Monoid r a' b')) <$> ra <*> rb
+                                     <|> (\a' -> if isMempty a' then b else withReduce2Monoid r a' b) <$> ra
+                                     <|> (\b' -> if isMempty b' then a else withReduce2Monoid r a b') <$> rb
+                                     <|> fromInteger <$> intExpr    rr
+                                     <|> fromDouble  <$> doubleExpr rr
+                    in
+                    case rr of
+                      Expr {} ->
+                          rr { reduced' =  red }
+                      BinExpr op l rgt -> fromMaybe (distributeConstant op l rgt) red
+ 
+ -- | Identity simplification together with constant redistribution, for a
 --   commutative+associative operator (currently only @+@). Constants in nested
 --   applications are folded together, e.g. @2 + (x + 3)@ simplifies to
 --   @x + 5@. The 'mergeable' guard inside 'distributeConstant' keeps this from
@@ -692,13 +709,13 @@ instance Bounded Expr where
 
 #if MIN_VERSION_base(4,9,0)
 instance Semigroup Expr where
-    (<>) = withReduce2 $ mkBinOp " <> " False True $ op InfixR 6 " <> "
+    (<>) = withReduce2Monoid $ mkBinOp " <> " False True $ op InfixR 6 " <> "
 #endif
 
 instance Monoid Expr where
     mempty = var "mempty"
 #if !(MIN_VERSION_base(4,11,0))
-    mappend = withReduce2 $ mkBinOp " <> " False True $ op InfixR 6 " <> "
+    mappend = withReduce2Monoid $ mkBinOp " <> " False True $ op InfixR 6 " <> "
 #endif
     mconcat = fun "mconcat"
 

@@ -164,6 +164,12 @@ cases =
   , ("pred (succ a) = a",        show (pred (succ a)),    "a")
   , ("succ (pred (10 - 3 - 2))", steps (succ (pred (10 - 3 - 2))), "10 - 3 - 2 => 10 - 3 - 2 => 7 - 2 => 5 => succ 4 => 5")
 
+  -- Specific Monoid/Semigroup tests ----------------------------------------
+  , ("mempty <> a = a",          show (mempty <> a),      "a")
+  , ("a <> mempty = a",          show (a <> mempty),      "a")
+  , ("(mempty <> (2 - 1)) <> a", steps ((mempty <> (2 - 1)) <> a), "(2 - 1) <> a => (2 - 1) <> a => 1 <> a => 1 <> a")
+
+
 
 
 
