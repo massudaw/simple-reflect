@@ -254,6 +254,29 @@ withReduce2Identity ident r a b =
                           rr { reduced' =  red }
                       BinExpr op l rgt -> fromMaybe (distributeConstant op l rgt) red
 
+-- | Identity simplification together with constant redistribution, for a
+--   commutative+associative operator (currently only @+@). Constants in nested
+--   applications are folded together, e.g. @2 + (x + 3)@ simplifies to
+--   @x + 5@. The 'mergeable' guard inside 'distributeConstant' keeps this from
+--   ever crossing into another operator, and pure-constant sums stay flat
+--   (e.g. @1 + 2 + 3@) because two constants reduce to an 'Expr', not a tagged
+--   'BinExpr', so the step-by-step 'reduction' is preserved.
+withReduce2IdentityDistribute :: Expr -> BinOp -> (Expr -> Expr -> Expr)
+withReduce2IdentityDistribute ident r a b =
+                    let rr = identityRule ident a b (distributeConstant r a b)
+                        ra = reduced a
+                        rb = reduced b
+                        red = (\a' b' -> identityRule ident a' b' (withReduce2IdentityDistribute ident (distributeOp r) a' b')) <$> ra <*> rb
+                                     <|> (\a' -> if a' == ident then b else withReduce2IdentityDistribute ident (distributeOp r) a' b) <$> ra
+                                     <|> (\b' -> if b' == ident then a else withReduce2IdentityDistribute ident (distributeOp r) a b') <$> rb
+                                     <|> fromInteger <$> intExpr    rr
+                                     <|> fromDouble  <$> doubleExpr rr
+                    in
+                    case rr of
+                      Expr {} ->
+                          rr { reduced' =  red }
+                      BinExpr op l rgt -> fromMaybe (distributeConstant op l rgt) red
+
 
 ------------------------------------------------------------------------------
 -- Function types
@@ -308,7 +331,7 @@ instance Ord Expr where
     max = fun "max" `iOp2` max `dOp2` max
 
 instance Num Expr where
-    (+)    = withReduce2Identity 0 $ (mkBinOp " + " True  True  $ op InfixL 6 " + " `iOp2` (+)   `dOp2` (+)) { onLeftIdentity = Just id }
+    (+)    = withReduce2IdentityDistribute 0 $ mkBinOp " + " True  True  $ op InfixL 6 " + " `iOp2` (+)   `dOp2` (+)
     (-)    = withReduce2Identity 0 $ (mkBinOp " - " False False $ op InfixL 6 " - " `iOp2` (-)   `dOp2` (-)) { onLeftIdentity = Just negate }
     (*)    = withReduce2AnnihilateAndIdentity 0 1 $ mkBinOp " * " True True $ op InfixL 7 " * " `iOp2` (*)   `dOp2` (*)
     negate = withReduce  $ distributeUnary (negateExpr `iOp` negate `dOp` negate)

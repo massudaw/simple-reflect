@@ -56,7 +56,19 @@ cases =
   , ("5 * (x / 2) untouched", show (5 * (x / 2)),          "5 * (x / 2)")
   , ("(a - b) * 3 untouched", show ((a - b) * 3),          "(a - b) * 3")
   , ("2 * (x + 3) untouched", show (2 * (x + 3)),          "2 * (x + 3)")
-  , ("2 + (x + 3) untouched", show (2 + (x + 3)),          "2 + (x + 3)")
+
+  -- Additive constant folding (commutative + associative) ------------------
+  , ("2 + (x + 3) = x + 5",   show (2 + (x + 3)),          "x + 5")
+  , ("(x + 3) + 2 = x + 5",   show ((x + 3) + 2),          "x + 5")
+  , ("2 + x + 3 = 5 + x",     show (2 + x + 3),            "5 + x")
+  , ("x + 1 + 2 = x + 3",     show (x + 1 + 2),            "x + 3")
+  , ("1+(2+(3+x)) = 6 + x",   show (1 + (2 + (3 + x))),    "6 + x")
+  , ("x + 2 + 3 + y folds",   show (x + 2 + 3 + y),        "x + y + 5")
+  , ("sum [1..5] stays flat", show (sum [1..5] :: Expr),   "1 + 2 + 3 + 4 + 5")
+  -- ...but additive folding must NOT cross other operators:
+  , ("2 + 3 * x untouched",   show (2 + 3 * x),            "2 + 3 * x")
+  , ("2 + (x - 3) untouched", show (2 + (x - 3)),          "2 + (x - 3)")
+  , ("x + 2 - 3 untouched",   show (x + 2 - 3),            "x + 2 - 3")
 
   -- Unary minus rendering --------------------------------------------------
   , ("negate a = -a",             show (negate a),         "-a")
