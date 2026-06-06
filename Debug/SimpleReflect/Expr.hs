@@ -294,8 +294,8 @@ withReduce2AnnihilateAndIdentity zero one r a b =
                       ra = reduced a
                       rb = reduced b
                       reductions = (\a' b' -> identityRule one a' b' (annihilateRule zero a' b' (negateRule a' b' (withReduce2AnnihilateAndIdentity zero one (distributeOp r) a' b')))) <$> ra <*> rb
-                               <|> (\a' -> if  a' == one then b else (if abs a' < 1e-15 then zero else (if a' == -1 then negate b else withReduce2AnnihilateAndIdentity zero one  (distributeOp r) a' b))) <$> ra
-                               <|> (\b' -> if  b' == one then a else (if abs b' < 1e-15 then zero else (if b' == -1 then negate a else withReduce2AnnihilateAndIdentity zero one (distributeOp r) a b'))) <$> rb
+                               <|> (\a' -> if  a' == one then b else (if isZeroExpr a' then zero else (if a' == -1 then negate b else withReduce2AnnihilateAndIdentity zero one  (distributeOp r) a' b))) <$> ra
+                               <|> (\b' -> if  b' == one then a else (if isZeroExpr b' then zero else (if b' == -1 then negate a else withReduce2AnnihilateAndIdentity zero one (distributeOp r) a b'))) <$> rb
                                <|> fromInteger <$> intExpr    rr
                                <|> fromDouble  <$> doubleExpr rr
                     in  case rr of
@@ -506,8 +506,15 @@ withReduce2Pow r a b =
                       BinExpr op l rgt -> fromMaybe (distributeConstant op l rgt) red
 
 
+isZeroExpr :: Expr -> Bool
+isZeroExpr e =
+  case (intExpr e, doubleExpr e) of
+    (Just i, _) -> i == 0
+    (_, Just d) -> abs d < 1e-15
+    _           -> False
+
 identityRule ident = (\a b r  -> if a == ident then b else  (if b == ident then a else r))
-annihilateRule zero = (\a b r  -> if abs a < 1e-15 || abs b < 1e-15 then zero else  r)
+annihilateRule zero = (\a b r  -> if isZeroExpr a || isZeroExpr b then zero else  r)
 
 
 -- | Identity simplification for a binary operator. The right operand is always
