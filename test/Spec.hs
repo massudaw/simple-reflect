@@ -27,6 +27,10 @@ cases =
   , ("a - 0 = a",            show (a - 0),  "a")
   , ("x * 1 = x",            show (x * 1),  "x")
   , ("1 * x = x",            show (1 * x),  "x")
+  , ("a / 1 = a",            show (a / 1),  "a")
+  , ("a ** 1 = a",           show (a ** 1), "a")
+  , ("a / (2 - 1) = a",      steps (a / (2 - 1)),         "a => a")
+  , ("a ** (2 - 1) = a",     steps (a ** (2 - 1)),        "a => a")
 
   -- Annihilator ------------------------------------------------------------
   , ("x * 0 = 0",            show (x * 0),  "0")
@@ -79,6 +83,15 @@ cases =
   , ("negate (2 * x) = (-2) * x", show (negate (2 * x)),   "(-2) * x")
   , ("abs a unchanged",           show (abs a),            "abs a")
   , ("signum a unchanged",        show (signum a),         "signum a")
+  , ("negate (negate a) = a",     show (negate (negate a)), "a")
+  , ("negate 0 = 0",              show (negate 0),         "0")
+  , ("negate (negate (10 - 3 - 2))", steps (negate (negate (10 - 3 - 2))), "5 => 5 => 5 => 5 => 5")
+  , ("abs (negate a) = abs a",    show (abs (negate a)),   "abs a")
+  , ("abs (abs a) = abs a",       show (abs (abs a)),      "abs a")
+  , ("signum (signum a) = signum a", show (signum (signum a)), "signum a")
+  , ("abs (negate (10 - 3 - 2))",  steps (abs (negate (10 - 3 - 2))), "abs 5 => abs 5 => abs 5 => abs 5 => 5")
+  , ("abs (abs (10 - 3 - 2))",     steps (abs (abs (10 - 3 - 2))), "abs (10 - 3 - 2) => abs (7 - 2) => abs 5 => abs 5 => 5")
+  , ("signum (signum (10 - 3 - 2))", steps (signum (signum (10 - 3 - 2))), "signum (10 - 3 - 2) => signum (7 - 2) => signum 5 => signum 1 => 1")
 
   -- Sign normalization: a + (negation) => a - x, and vice versa -----------
   , ("a + negate b = a - b",      show (a + negate b),     "a - b")

@@ -56,6 +56,8 @@ data Expr
    , doubleExpr' :: Maybe Double  -- ^ Floating value?
    , reduced'    :: Maybe Expr    -- ^ Next reduction step
    , negated'    :: Maybe Expr    -- ^ If this is @negate e@, the operand @e@ (used for sign normalization)
+   , absed'      :: Maybe Expr    -- ^ If this is @abs e@, the operand @e@
+   , signumed'   :: Maybe Expr    -- ^ If this is @signum e@, the operand @e@
    }
    | BinExpr
    { operation :: BinOp
@@ -66,13 +68,16 @@ data Expr
 showExpr  r@(Expr {}) p = showExpr' r p
 showExpr (BinExpr expr argL argR) p  =  showExpr (applyBinOp expr argL argR) p
 
-intExpr (Expr _ i _ _ _ ) = i
+intExpr :: Expr -> Maybe Integer
+intExpr Expr{ intExpr' = i } = i
 intExpr _ = Nothing
 
-doubleExpr (Expr _ _ i _ _ ) = i
+doubleExpr :: Expr -> Maybe Double
+doubleExpr Expr{ doubleExpr' = d } = d
 doubleExpr _ = Nothing
 
-reduced (Expr _ _ _ i _ ) = i
+reduced :: Expr -> Maybe Expr
+reduced Expr{ reduced' = r } = r
 reduced (BinExpr e l r) =  reduced (applyBinOp e l r)
 
 -- | If the expression is a negation (a negative numeric constant or a
@@ -82,8 +87,16 @@ asNegation e
     | Just n <- intExpr    e, n < 0     = Just (fromInteger (negate n))
     | Just d <- doubleExpr e, d < 0     = Just (fromDouble  (negate d))
     | otherwise                         = negatedOf e
-  where negatedOf (Expr _ _ _ _ n) = n
-        negatedOf _                = Nothing
+  where negatedOf Expr{ negated' = n } = n
+        negatedOf _                    = Nothing
+
+asAbs :: Expr -> Maybe Expr
+asAbs Expr{ absed' = a } = a
+asAbs _                  = Nothing
+
+asSignum :: Expr -> Maybe Expr
+asSignum Expr{ signumed' = s } = s
+asSignum _                     = Nothing
 
 rewriteReducedBinOp bin@(BinExpr expr argL argR )=
   let rr = applyBinOp expr argL argR
@@ -109,6 +122,8 @@ emptyExpr = Expr { showExpr'   = \_ -> showString ""
                  , doubleExpr' = Nothing
                  , reduced'    = Nothing
                  , negated'    = Nothing
+                 , absed'      = Nothing
+                 , signumed'   = Nothing
                  }
 
 ------------------------------------------------------------------------------
@@ -249,9 +264,33 @@ distributeConstant op a b | isConstant a || isConstant b = BinExpr op a b
 -- Don't tag if nothing is constant
 distributeConstant op a b = applyBinOp op a b
 
+distributeUnary op expr
+    | expr == 0                     = expr
+    | Just expr' <- asNegation expr = expr'
 distributeUnary op (BinExpr expr l r ) | isConstant l = BinExpr expr (withReduce op l ) r
 distributeUnary op (BinExpr expr l r ) | isConstant r = BinExpr expr l (withReduce op r )
 distributeUnary op expr = op expr
+
+absExpr :: Expr -> Expr
+absExpr a = (fun "abs" a) { absed' = Just a }
+
+distributeUnaryAbs :: (Expr -> Expr) -> Expr -> Expr
+distributeUnaryAbs op expr
+    | Just expr' <- asNegation expr               = abs expr'
+    | Just expr' <- asAbs expr                    = expr
+    | (BinExpr exprBin l r) <- expr, isConstant l = BinExpr exprBin (withReduce op l ) r
+    | (BinExpr exprBin l r) <- expr, isConstant r = BinExpr exprBin l (withReduce op r )
+    | otherwise                                   = op expr
+
+signumExpr :: Expr -> Expr
+signumExpr a = (fun "signum" a) { signumed' = Just a }
+
+distributeUnarySignum :: (Expr -> Expr) -> Expr -> Expr
+distributeUnarySignum op expr
+    | Just expr' <- asSignum expr                 = expr
+    | (BinExpr exprBin l r) <- expr, isConstant l = BinExpr exprBin (withReduce op l ) r
+    | (BinExpr exprBin l r) <- expr, isConstant r = BinExpr exprBin l (withReduce op r )
+    | otherwise                                   = op expr
 
 
 identityRule ident = (\a b r  -> if a == ident then b else  (if b == ident then a else r))
@@ -363,8 +402,8 @@ instance Num Expr where
     (-)    = withReduce2Identity 0 $ (mkBinOp " - " False False $ subShow `iOp2` (-)   `dOp2` (-)) { onLeftIdentity = Just negate }
     (*)    = withReduce2AnnihilateAndIdentity 0 1 $ mkBinOp " * " True True $ op InfixL 7 " * " `iOp2` (*)   `dOp2` (*)
     negate = withReduce  $ distributeUnary (negateExpr `iOp` negate `dOp` negate)
-    abs    = withReduce  $ fun "abs"    `iOp` abs    `dOp` abs
-    signum = withReduce  $ fun "signum" `iOp` signum `dOp` signum
+    abs    = withReduce  $ distributeUnaryAbs (absExpr `iOp` abs    `dOp` abs)
+    signum = withReduce  $ distributeUnarySignum (signumExpr `iOp` signum `dOp` signum)
     fromInteger i = (lift i)
                      { intExpr'    = Just i
                      , doubleExpr' = Just $ fromInteger i }
@@ -387,7 +426,7 @@ instance Integral Expr where
           _      -> error $ "not an integer: " ++ show someExpr
 
 instance Fractional Expr where
-    (/)   = withReduce2 $ mkBinOp " / " False False $ op InfixL 7 " / " `dOp2` (/)
+    (/)   = withReduce2Identity 1 $ mkBinOp " / " False False $ op InfixL 7 " / " `dOp2` (/)
     recip = withReduce  $ fun "recip"  `dOp` recip
     fromRational r = fromDouble (fromRational r)
 
@@ -408,7 +447,7 @@ instance Floating Expr where
     exp   = withReduce  $ fun "exp"   `dOp` exp
     sqrt  = withReduce  $ fun "sqrt"  `dOp` sqrt
     log   = withReduce  $ fun "log"   `dOp` log
-    (**)  = withReduce2 $ mkBinOp "**" False False $ op InfixR 8 "**" `dOp2` (**)
+    (**)  = withReduce2Identity 1 $ mkBinOp "**" False False $ op InfixR 8 "**" `dOp2` (**)
     sin   = withReduce  $ fun "sin"   `dOp` sin
     cos   = withReduce  $ fun "cos"   `dOp` cos
     sinh  = withReduce  $ fun "sinh"  `dOp` sinh
