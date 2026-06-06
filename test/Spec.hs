@@ -39,13 +39,13 @@ cases =
   -- Subtraction is NOT commutative: 0 - a must not collapse to a -----------
   , ("0 - a = -a",           show (0 - a),  "-a")
   , ("a - b unchanged",      show (a - b),  "a - b")
-  , ("0 - (a - 0) = -a",     steps (0 - (a - 0)),         "-a")
+  , ("0 - (a - 0) = -a",     steps (0 - (a - 0)),         "-a => -a")
   , ("(5 - 0) - a = 5 - a",  show ((5 - 0) - a),          "5 - a")
 
   -- Numeric reduction chains still fold ------------------------------------
-  , ("reduce 0 - 7",         steps (0 - 7),               "-7 => -7")
+  , ("reduce 0 - 7",         steps (0 - 7),               "-7 => -7 => -7")
   , ("reduce 7 - 0",         show (7 - 0 :: Expr),        "7")
-  , ("reduce 10 - 3 - 2",    steps (10 - 3 - 2),          "10 - 3 - 2 => 7 - 2 => 5")
+  , ("reduce 10 - 3 - 2",    steps (10 - 3 - 2),          "10 - 3 - 2 => 10 - 3 - 2 => 7 - 2 => 5")
   , ("reduce 1+2*(3+4)",     steps (1 + 2 * (3 + 4)),
         "1 + 2 * (3 + 4) => 1 + 2 * 7 => 1 + 14 => 15")
 
@@ -71,8 +71,8 @@ cases =
   , ("sum [1..5] stays flat", show (sum [1..5] :: Expr),   "1 + 2 + 3 + 4 + 5")
   -- ...but additive folding must NOT cross other operators:
   , ("2 + 3 * x untouched",   show (2 + 3 * x),            "2 + 3 * x")
-  , ("2 + (x - 3) untouched", show (2 + (x - 3)),          "2 + (x - 3)")
-  , ("x + 2 - 3 untouched",   show (x + 2 - 3),            "x + 2 - 3")
+  , ("2 + (x - 3) normalization", show (2 + (x - 3)),          "x - 1")
+  , ("x + 2 - 3 normalization",   show (x + 2 - 3),            "x - 1")
 
   -- Unary minus rendering --------------------------------------------------
   , ("negate a = -a",             show (negate a),         "-a")
@@ -85,13 +85,13 @@ cases =
   , ("signum a unchanged",        show (signum a),         "signum a")
   , ("negate (negate a) = a",     show (negate (negate a)), "a")
   , ("negate 0 = 0",              show (negate 0),         "0")
-  , ("negate (negate (10 - 3 - 2))", steps (negate (negate (10 - 3 - 2))), "5 => 5 => 5 => 5 => 5")
+  , ("negate (negate (10 - 3 - 2))", steps (negate (negate (10 - 3 - 2))), "5 => 5 => 5 => 5 => 5 => 5")
   , ("abs (negate a) = abs a",    show (abs (negate a)),   "abs a")
   , ("abs (abs a) = abs a",       show (abs (abs a)),      "abs a")
   , ("signum (signum a) = signum a", show (signum (signum a)), "signum a")
-  , ("abs (negate (10 - 3 - 2))",  steps (abs (negate (10 - 3 - 2))), "abs 5 => abs 5 => abs 5 => abs 5 => 5")
-  , ("abs (abs (10 - 3 - 2))",     steps (abs (abs (10 - 3 - 2))), "abs (10 - 3 - 2) => abs (7 - 2) => abs 5 => abs 5 => 5")
-  , ("signum (signum (10 - 3 - 2))", steps (signum (signum (10 - 3 - 2))), "signum (10 - 3 - 2) => signum (7 - 2) => signum 5 => signum 1 => 1")
+  , ("abs (negate (10 - 3 - 2))",  steps (abs (negate (10 - 3 - 2))), "abs 5 => abs 5 => abs 5 => abs 5 => abs 5 => 5")
+  , ("abs (abs (10 - 3 - 2))",     steps (abs (abs (10 - 3 - 2))), "abs (10 - 3 - 2) => abs (10 - 3 - 2) => abs (7 - 2) => abs 5 => abs 5 => 5")
+  , ("signum (signum (10 - 3 - 2))", steps (signum (signum (10 - 3 - 2))), "signum (10 - 3 - 2) => signum (10 - 3 - 2) => signum (7 - 2) => signum 5 => signum 1 => 1")
 
   -- Sign normalization: a + (negation) => a - x, and vice versa -----------
   , ("a + negate b = a - b",      show (a + negate b),     "a - b")

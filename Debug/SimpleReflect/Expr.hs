@@ -399,7 +399,7 @@ instance Ord Expr where
 
 instance Num Expr where
     (+)    = withReduce2IdentityDistribute 0 $ mkBinOp " + " True  True  $ addShow `iOp2` (+)   `dOp2` (+)
-    (-)    = withReduce2Identity 0 $ (mkBinOp " - " False False $ subShow `iOp2` (-)   `dOp2` (-)) { onLeftIdentity = Just negate }
+    (-)    = \a b -> a + negate b
     (*)    = withReduce2AnnihilateAndIdentity 0 1 $ mkBinOp " * " True True $ op InfixL 7 " * " `iOp2` (*)   `dOp2` (*)
     negate = withReduce  $ distributeUnary (negateExpr `iOp` negate `dOp` negate)
     abs    = withReduce  $ distributeUnaryAbs (absExpr `iOp` abs    `dOp` abs)
