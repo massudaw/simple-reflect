@@ -33,5 +33,5 @@ test-suite spec
     type:                exitcode-stdio-1.0
     main-is:             Spec.hs
     hs-source-dirs:      test
-    build-depends:       base >= 2 && < 5, simple-reflect
+    build-depends:       base >= 2 && < 5, simple-reflect, QuickCheck
     default-language:    Haskell2010
