@@ -159,6 +159,12 @@ cases =
   , ("sinh (negate a) = -sinh a", show (sinh (negate a)), "-sinh a")
   , ("cosh (negate a) = cosh a",  show (cosh (negate a)), "cosh a")
 
+  -- Specific Enum (successor/precursor) tests ------------------------------
+  , ("succ (pred a) = a",        show (succ (pred a)),    "a")
+  , ("pred (succ a) = a",        show (pred (succ a)),    "a")
+  , ("succ (pred (10 - 3 - 2))", steps (succ (pred (10 - 3 - 2))), "10 - 3 - 2 => 10 - 3 - 2 => 7 - 2 => 5 => succ 4 => 5")
+
+
 
 
 

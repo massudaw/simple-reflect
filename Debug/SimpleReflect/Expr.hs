@@ -68,6 +68,8 @@ data Expr
    , coshed'     :: Maybe Expr
    , asined'     :: Maybe Expr
    , ataned'     :: Maybe Expr
+   , succed'     :: Maybe Expr
+   , preded'     :: Maybe Expr
    }
    | BinExpr
    { operation :: BinOp
@@ -148,6 +150,14 @@ asAtan :: Expr -> Maybe Expr
 asAtan Expr{ ataned' = a } = a
 asAtan _                   = Nothing
 
+asSucc :: Expr -> Maybe Expr
+asSucc Expr{ succed' = s } = s
+asSucc _                   = Nothing
+
+asPred :: Expr -> Maybe Expr
+asPred Expr{ preded' = p } = p
+asPred _                   = Nothing
+
 rewriteReducedBinOp bin@(BinExpr expr argL argR )=
   let rr = applyBinOp expr argL argR
   in fromMaybe bin $
@@ -184,6 +194,8 @@ emptyExpr = Expr { showExpr'   = \_ -> showString ""
                  , coshed'     = Nothing
                  , asined'     = Nothing
                  , ataned'     = Nothing
+                 , succed'     = Nothing
+                 , preded'     = Nothing
                  }
 
 ------------------------------------------------------------------------------
@@ -453,6 +465,22 @@ distributeUnaryAtan op expr
     | expr == 0                   = 0
     | otherwise                   = op expr
 
+succExpr :: Expr -> Expr
+succExpr a = (fun "succ" a) { succed' = Just a }
+
+distributeUnarySucc :: (Expr -> Expr) -> Expr -> Expr
+distributeUnarySucc op expr
+    | Just expr' <- asPred expr   = expr'
+    | otherwise                   = op expr
+
+predExpr :: Expr -> Expr
+predExpr a = (fun "pred" a) { preded' = Just a }
+
+distributeUnaryPred :: (Expr -> Expr) -> Expr -> Expr
+distributeUnaryPred op expr
+    | Just expr' <- asSucc expr   = expr'
+    | otherwise                   = op expr
+
 powRule :: Expr -> Expr -> Expr -> Expr
 powRule a b fallback
     | b == 0    = 1
@@ -645,8 +673,8 @@ instance Floating Expr where
     atanh = withReduce  $ fun "atanh" `dOp` atanh
 
 instance Enum Expr where
-    succ   = withReduce  $ fun "succ" `iOp` succ `dOp` succ
-    pred   = withReduce  $ fun "pred" `iOp` pred `dOp` pred
+    succ   = withReduce  $ distributeUnarySucc (succExpr `iOp` succ `dOp` succ)
+    pred   = withReduce  $ distributeUnaryPred (predExpr `iOp` pred `dOp` pred)
     toEnum = fun "toEnum"
     fromEnum = fromEnum . toInteger
     enumFrom       a     = map fromInteger $ enumFrom       (toInteger a)
