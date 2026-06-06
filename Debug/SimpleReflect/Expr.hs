@@ -208,12 +208,16 @@ withReduce2 r a b = let rr = applyBinOp r a b
 withReduce2AnnihilateAndIdentity :: Expr -> Expr -> BinOp -> (Expr -> Expr -> Expr)
 withReduce2AnnihilateAndIdentity zero one r a b =
                     let
-                      rr = identityRule one a b (annihilateRule zero a b (distributeConstant r a b))
+                      negateRule p q fallback
+                        | p == -1   = negate q
+                        | q == -1   = negate p
+                        | otherwise = fallback
+                      rr = identityRule one a b (annihilateRule zero a b (negateRule a b (distributeConstant r a b)))
                       ra = reduced a
                       rb = reduced b
-                      reductions = (\a' b' -> identityRule one a' b' (annihilateRule zero a' b' (withReduce2AnnihilateAndIdentity zero one (distributeOp r)a' b'))) <$> ra <*> rb
-                               <|> (\a' -> if  a' == one then b else (if abs a' < 1e-15 then zero else withReduce2AnnihilateAndIdentity zero one  (distributeOp r) a' b)) <$> ra
-                               <|> (\b' -> if  b' == one then a else (if abs b' < 1e-15 then zero else withReduce2AnnihilateAndIdentity zero one (distributeOp r) a b')) <$> rb
+                      reductions = (\a' b' -> identityRule one a' b' (annihilateRule zero a' b' (negateRule a' b' (withReduce2AnnihilateAndIdentity zero one (distributeOp r) a' b')))) <$> ra <*> rb
+                               <|> (\a' -> if  a' == one then b else (if abs a' < 1e-15 then zero else (if a' == -1 then negate b else withReduce2AnnihilateAndIdentity zero one  (distributeOp r) a' b))) <$> ra
+                               <|> (\b' -> if  b' == one then a else (if abs b' < 1e-15 then zero else (if b' == -1 then negate a else withReduce2AnnihilateAndIdentity zero one (distributeOp r) a b'))) <$> rb
                                <|> fromInteger <$> intExpr    rr
                                <|> fromDouble  <$> doubleExpr rr
                     in  case rr of
