@@ -7,7 +7,7 @@ author:              Twan van Laarhoven
 maintainer:          twanvl@gmail.com
 bug-reports:         https://github.com/twanvl/simple-reflect/issues
 category:            Debug
-cabal-version:       >= 1.6
+cabal-version:       >= 1.10
 build-type:          Simple
 synopsis:            Simple reflection of expressions containing variables
 description:
@@ -23,7 +23,15 @@ source-repository head
 
 Library
     build-depends:       base >= 2 && < 5
+    default-language:    Haskell2010
     exposed-modules:
         Debug.SimpleReflect
         Debug.SimpleReflect.Expr
         Debug.SimpleReflect.Vars
+
+test-suite spec
+    type:                exitcode-stdio-1.0
+    main-is:             Spec.hs
+    hs-source-dirs:      test
+    build-depends:       base >= 2 && < 5, simple-reflect
+    default-language:    Haskell2010

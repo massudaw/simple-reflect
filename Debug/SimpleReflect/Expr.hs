@@ -23,7 +23,6 @@ module Debug.SimpleReflect.Expr
     , expr, reduce, reduction
     ) where
 
-import Debug.Trace
 import Data.List
 import Data.Maybe
 import Data.Monoid
@@ -35,10 +34,19 @@ import Control.Applicative
 ------------------------------------------------------------------------------
 -- Data type
 ------------------------------------------------------------------------------
-data Operation = Operation
-    {associativity :: Associativity
-    ,precedence :: Int
-    ,operatorName :: String}
+-- | A binary operator together with the algebraic laws needed to decide
+--   whether constants may safely be rearranged through nested applications
+--   of it. Only operators that are commutative and associative may have
+--   their constants merged (and then only with other applications of the
+--   /same/ operator), which keeps simplification sound for non-commutative
+--   operators such as @-@ and @/@.
+data BinOp = BinOp
+    { applyBinOp    :: Expr -> Expr -> Expr     -- ^ Build the result expression (handles showing and numeric folding)
+    , opName        :: String                  -- ^ Identifies the operator, so only matching operators are merged
+    , commutative   :: Bool                     -- ^ Is  @a `op` b@  ==  @b `op` a@ ?
+    , associative   :: Bool                     -- ^ Is  @(a `op` b) `op` c@  ==  @a `op` (b `op` c)@ ?
+    , onLeftIdentity :: Maybe (Expr -> Expr)    -- ^ If @Just f@, then @ident `op` b@ simplifies to @f b@ (e.g. @id@ for @+@, @negate@ for @-@)
+    }
 
 -- | A reflected expression
 data Expr
@@ -49,14 +57,13 @@ data Expr
    , reduced'    :: Maybe Expr    -- ^ Next reduction step
    }
    | BinExpr
-   { operation :: Expr -> Expr -> Expr
-   , argL :: Expr    -- ^ Next reduction step
-   , argR :: Expr    -- ^ Next reduction step
+   { operation :: BinOp
+   , argL :: Expr    -- ^ Left operand
+   , argR :: Expr    -- ^ Right operand
    }
 
 showExpr  r@(Expr {}) p = showExpr' r p
-showExpr (BinExpr expr i j ) p | isConstant i && isConstant j && traceShow ("Both constant" ,i,j) False=  undefined
-showExpr (BinExpr expr argL argR) p  =  showExpr (expr argL argR) p
+showExpr (BinExpr expr argL argR) p  =  showExpr (applyBinOp expr argL argR) p
 
 intExpr (Expr _ i _ _ ) = i
 intExpr _ = Nothing
@@ -65,10 +72,10 @@ doubleExpr (Expr _ _ i _ ) = i
 doubleExpr _ = Nothing
 
 reduced (Expr _ _ _ i ) = i
-reduced (BinExpr e l r) =  reduced (e l r)
+reduced (BinExpr e l r) =  reduced (applyBinOp e l r)
 
 rewriteReducedBinOp bin@(BinExpr expr argL argR )=
-  let rr = expr argL argR
+  let rr = applyBinOp expr argL argR
   in fromMaybe bin $
      withReduce2 expr <$> reduced argL   <*> reduced argR
      <|> (\ l -> withReduce2 expr  l argR) <$> reduced argL
@@ -114,6 +121,11 @@ op fix prec opName a b = emptyExpr { showExpr' = showFun }
                      . showString opName
                      . showExpr b (if fix == InfixR then prec else prec + 1)
 
+-- | Prefix unary minus, rendered as @-a@ (precedence 6, like Haskell's own
+--   unary minus) rather than as @negate a@.
+negateExpr :: Expr -> Expr
+negateExpr a = emptyExpr { showExpr' = \p -> showParen (p > 6) $ showString "-" . showExpr a 7 }
+
 ------------------------------------------------------------------------------
 -- Adding numeric results
 ------------------------------------------------------------------------------
@@ -136,61 +148,78 @@ withReduce r a    = let rr = r a
                     in case rr of
                           Expr {} -> rr { reduced' =  reductions}
                           BinExpr op r l  ->  fromMaybe (distributeConstant op r l ) reductions
-withReduce2 :: (Expr -> Expr -> Expr) -> (Expr -> Expr -> Expr)
-withReduce2 r a b = let rr = r a b
+withReduce2 :: BinOp -> (Expr -> Expr -> Expr)
+withReduce2 r a b = let rr = applyBinOp r a b
                         ra = reduced a
                         rb = reduced b
-                            in
-                    rr { reduced' =
+                        reductions =
                               (\a' b' -> withReduce2 r a' b') <$> ra <*> rb
                                <|> (\a' -> withReduce2 r a' b) <$> ra
                                <|> (\b' -> withReduce2 r a b') <$> rb
                                <|> fromInteger <$> intExpr    rr
                                <|> fromDouble  <$> doubleExpr rr
-                       }
+                    in case rr of
+                          Expr {}            -> rr { reduced' = reductions }
+                          BinExpr op argL argR -> fromMaybe (distributeConstant op argL argR) reductions
 
-withReduce2AnihilateAndIdentity :: Expr -> Expr -> (Expr -> Expr -> Expr) -> (Expr -> Expr -> Expr)
-withReduce2AnihilateAndIdentity zero one r a b =
+withReduce2AnnihilateAndIdentity :: Expr -> Expr -> BinOp -> (Expr -> Expr -> Expr)
+withReduce2AnnihilateAndIdentity zero one r a b =
                     let
-                      rr = identityRule one a b (anihilateRule zero a b (distributeConstant r a b))
+                      rr = identityRule one a b (annihilateRule zero a b (distributeConstant r a b))
                       ra = reduced a
                       rb = reduced b
-                      reductions = (\a' b' -> identityRule one a' b' (anihilateRule zero a' b' (withReduce2AnihilateAndIdentity zero one (distributeConstant r)a' b'))) <$> ra <*> rb
-                               <|> (\a' -> if  a' == one then b else (if abs a' < 1e-15 then zero else withReduce2AnihilateAndIdentity zero one  (distributeConstant r) a' b)) <$> ra
-                               <|> (\b' -> if  b' == one then a else (if abs b' < 1e-15 then zero else withReduce2AnihilateAndIdentity zero one (distributeConstant r) a b')) <$> rb
+                      reductions = (\a' b' -> identityRule one a' b' (annihilateRule zero a' b' (withReduce2AnnihilateAndIdentity zero one (distributeOp r)a' b'))) <$> ra <*> rb
+                               <|> (\a' -> if  a' == one then b else (if abs a' < 1e-15 then zero else withReduce2AnnihilateAndIdentity zero one  (distributeOp r) a' b)) <$> ra
+                               <|> (\b' -> if  b' == one then a else (if abs b' < 1e-15 then zero else withReduce2AnnihilateAndIdentity zero one (distributeOp r) a b')) <$> rb
                                <|> fromInteger <$> intExpr    rr
                                <|> fromDouble  <$> doubleExpr rr
                     in  case rr of
                             Expr {} -> rr {reduced' = reductions }
-                            BinExpr op r l ->  fromMaybe (distributeConstant op r l) reductions
+                            BinExpr op l rgt ->  fromMaybe (distributeConstant op l rgt) reductions
 
 isConstant l = isJust (intExpr l) || isJust (doubleExpr l)
 isBinExpr (BinExpr _ _ _ ) = True
 isBinExpr _ = False
 
---distributeConstant op a b@(BinExpr exr l r ) | traceShow (op a b, isConstant a,(isConstant l,l),(isConstant r,r)) False = undefined
---distributeConstant op b@(BinExpr exr l r ) a | traceShow (op a b, isConstant a,(isConstant l,l),(isConstant r,r)) False = undefined
---distributeConstant op  a@(BinExpr exr1 l1 r1) b@(BinExpr exr l r )| traceShow (op a b, isConstant a,("l",isConstant l,l),("r",isConstant r,r),("r1",isConstant r1,r1),("l1",isConstant l1,l1)) False = undefined
+-- | Construct a 'BinOp' from its name, algebraic properties and underlying
+--   operator function.
+mkBinOp :: String -> Bool -> Bool -> (Expr -> Expr -> Expr) -> BinOp
+mkBinOp name comm assoc f = BinOp { applyBinOp = f, opName = name, commutative = comm, associative = assoc, onLeftIdentity = Nothing }
+
+-- | Wrap an operator so that applying it also redistributes constants. Used
+--   when descending into the reduction steps of an associative/commutative
+--   operator (e.g. a product), while preserving its algebraic metadata.
+distributeOp :: BinOp -> BinOp
+distributeOp o = o { applyBinOp = distributeConstant o }
+
+-- | Whether constants may be freely rearranged between an outer operator and
+--   an inner 'BinExpr'. This is only sound when the outer operator is both
+--   associative and commutative and both nodes are the /same/ operator, which
+--   is what keeps non-commutative operators (@-@, @/@, ...) untouched.
+mergeable :: BinOp -> BinOp -> Bool
+mergeable outer inner = commutative outer && associative outer && opName outer == opName inner
+
+distributeConstant :: BinOp -> Expr -> Expr -> Expr
 --- If we can distribute to left side and untag BinExpr on right side
-distributeConstant op (BinExpr expr1 l1 r1) (BinExpr expr l r) | isConstant l1 && isConstant l=  distributeConstant expr1 (rewriteReducedBinOp $ BinExpr op l1 l) (expr r1 r)
-distributeConstant op (BinExpr expr1 l1 r1) (BinExpr expr l r) | isConstant l1 && isConstant r=  distributeConstant expr1 (rewriteReducedBinOp $ BinExpr op l1 r) (expr r1 l)
-distributeConstant op (BinExpr expr1 l1 r1) (BinExpr expr l r) | isConstant r1 && isConstant r=  distributeConstant expr1 (rewriteReducedBinOp $ BinExpr op r1 r) (expr l1 l)
-distributeConstant op (BinExpr expr1 l1 r1) (BinExpr expr l r) | isConstant l  && isConstant r1=  distributeConstant expr1 (rewriteReducedBinOp $ BinExpr op r1 l) (expr l1 r)
+distributeConstant op (BinExpr e1 l1 r1) (BinExpr e2 l r) | mergeable op e1 && mergeable op e2 && isConstant l1 && isConstant l=  distributeConstant e1 (rewriteReducedBinOp $ BinExpr op l1 l) (applyBinOp e2 r1 r)
+distributeConstant op (BinExpr e1 l1 r1) (BinExpr e2 l r) | mergeable op e1 && mergeable op e2 && isConstant l1 && isConstant r=  distributeConstant e1 (rewriteReducedBinOp $ BinExpr op l1 r) (applyBinOp e2 r1 l)
+distributeConstant op (BinExpr e1 l1 r1) (BinExpr e2 l r) | mergeable op e1 && mergeable op e2 && isConstant r1 && isConstant r=  distributeConstant e1 (rewriteReducedBinOp $ BinExpr op r1 r) (applyBinOp e2 l1 l)
+distributeConstant op (BinExpr e1 l1 r1) (BinExpr e2 l r) | mergeable op e1 && mergeable op e2 && isConstant l  && isConstant r1=  distributeConstant e1 (rewriteReducedBinOp $ BinExpr op r1 l) (applyBinOp e2 l1 r)
 --- If only one side is a BinExpr search for constants and simplify
-distributeConstant op (BinExpr expr l r ) a | isConstant l && isConstant a =  BinExpr expr (rewriteReducedBinOp $ BinExpr op l a) r
-distributeConstant op (BinExpr expr l r ) a | isConstant r && isConstant a =  BinExpr expr l (rewriteReducedBinOp $ BinExpr op r a)
-distributeConstant op a (BinExpr expr l r) | isConstant l && isConstant a =  BinExpr expr (rewriteReducedBinOp $ BinExpr op l a) r
-distributeConstant op a (BinExpr expr l r) | isConstant r && isConstant a =  BinExpr expr l (rewriteReducedBinOp $ BinExpr op r a)
+distributeConstant op (BinExpr e l r ) a | mergeable op e && isConstant l && isConstant a =  BinExpr e (rewriteReducedBinOp $ BinExpr op l a) r
+distributeConstant op (BinExpr e l r ) a | mergeable op e && isConstant r && isConstant a =  BinExpr e l (rewriteReducedBinOp $ BinExpr op r a)
+distributeConstant op a (BinExpr e l r) | mergeable op e && isConstant l && isConstant a =  BinExpr e (rewriteReducedBinOp $ BinExpr op l a) r
+distributeConstant op a (BinExpr e l r) | mergeable op e && isConstant r && isConstant a =  BinExpr e l (rewriteReducedBinOp $ BinExpr op r a)
 --- Move the constant to the top
-distributeConstant op (BinExpr expr l r ) a | isConstant r =  BinExpr expr  (op l a)  r
-distributeConstant op (BinExpr expr l r ) a | isConstant l =  BinExpr expr  l (op r a)
-distributeConstant op a (BinExpr expr l r) | isConstant r =  BinExpr expr  (op l a)  r
-distributeConstant op a (BinExpr expr l r) | isConstant l =  BinExpr expr  l (op r a)
+distributeConstant op (BinExpr e l r ) a | mergeable op e && isConstant r =  BinExpr e  (applyBinOp op l a)  r
+distributeConstant op (BinExpr e l r ) a | mergeable op e && isConstant l =  BinExpr e  l (applyBinOp op r a)
+distributeConstant op a (BinExpr e l r) | mergeable op e && isConstant r =  BinExpr e  (applyBinOp op l a)  r
+distributeConstant op a (BinExpr e l r) | mergeable op e && isConstant l =  BinExpr e  l (applyBinOp op r a)
 -- If is constant keep tagged as BinExpr
-distributeConstant op a b | isConstant a && isConstant b = op a b
+distributeConstant op a b | isConstant a && isConstant b = applyBinOp op a b
 distributeConstant op a b | isConstant a || isConstant b = BinExpr op a b
 -- Don't tag if nothing is constant
-distributeConstant op a b = op a b
+distributeConstant op a b = applyBinOp op a b
 
 distributeUnary op (BinExpr expr l r ) | isConstant l = BinExpr expr (withReduce op l ) r
 distributeUnary op (BinExpr expr l r ) | isConstant r = BinExpr expr l (withReduce op r )
@@ -198,16 +227,24 @@ distributeUnary op expr = op expr
 
 
 identityRule ident = (\a b r  -> if a == ident then b else  (if b == ident then a else r))
-anihilateRule zero = (\a b r  -> if abs a < 1e-15 || abs b < 1e-15 then zero else  r)
+annihilateRule zero = (\a b r  -> if abs a < 1e-15 || abs b < 1e-15 then zero else  r)
 
 
-withReduce2Identity :: Expr -> (Expr -> Expr -> Expr) -> (Expr -> Expr -> Expr)
+-- | Identity simplification for a binary operator. The right operand is always
+--   an identity (@a `op` ident@ == @a@). The left operand is handled by
+--   'onLeftIdentity': for @+@ it is @Just id@ so @0 + a@ == @a@; for @-@ it is
+--   @Just negate@ so @0 - a@ simplifies to @negate a@ (rather than the wrong
+--   @a@); for operators without a left identity it is @Nothing@.
+withReduce2Identity :: Expr -> BinOp -> (Expr -> Expr -> Expr)
 withReduce2Identity ident r a b =
-                    let rr = identityRule ident a b (r a b)
+                    let leftId p q fallback = case onLeftIdentity r of
+                                                Just act | p == ident -> act q
+                                                _                     -> fallback
+                        rr = leftId a b (if b == ident then a else applyBinOp r a b)
                         ra = reduced a
                         rb = reduced b
-                        red = (\a' b' -> if    a' == ident  then b' else  (if b' == ident then a' else withReduce2Identity ident r a' b')) <$> ra <*> rb
-                                     <|> (\a' -> if  a' == ident then b else withReduce2Identity ident r a' b) <$> ra
+                        red = (\a' b' -> leftId a' b' (if b' == ident then a' else withReduce2Identity ident r a' b')) <$> ra <*> rb
+                                     <|> (\a' -> leftId a' b (withReduce2Identity ident r a' b)) <$> ra
                                      <|> (\b' -> if  b' == ident then a else withReduce2Identity ident r a b') <$> rb
                                      <|> fromInteger <$> intExpr    rr
                                      <|> fromDouble  <$> doubleExpr rr
@@ -215,7 +252,7 @@ withReduce2Identity ident r a b =
                     case rr of
                       Expr {} ->
                           rr { reduced' =  red }
-                      BinExpr op r l -> fromMaybe (distributeConstant op r l) red
+                      BinExpr op l rgt -> fromMaybe (distributeConstant op l rgt) red
 
 
 ------------------------------------------------------------------------------
@@ -271,10 +308,10 @@ instance Ord Expr where
     max = fun "max" `iOp2` max `dOp2` max
 
 instance Num Expr where
-    (+)    = withReduce2Identity 0 $ op InfixL 6 " + " `iOp2` (+)   `dOp2` (+)
-    (-)    = withReduce2Identity 0 $ op InfixL 6 " - " `iOp2` (-)   `dOp2` (-)
-    (*)    = withReduce2AnihilateAndIdentity 0 1 $ op InfixL 7 " * " `iOp2` (*)   `dOp2` (*)
-    negate = withReduce  $ distributeUnary (fun "negate" `iOp` negate `dOp` negate)
+    (+)    = withReduce2Identity 0 $ (mkBinOp " + " True  True  $ op InfixL 6 " + " `iOp2` (+)   `dOp2` (+)) { onLeftIdentity = Just id }
+    (-)    = withReduce2Identity 0 $ (mkBinOp " - " False False $ op InfixL 6 " - " `iOp2` (-)   `dOp2` (-)) { onLeftIdentity = Just negate }
+    (*)    = withReduce2AnnihilateAndIdentity 0 1 $ mkBinOp " * " True True $ op InfixL 7 " * " `iOp2` (*)   `dOp2` (*)
+    negate = withReduce  $ distributeUnary (negateExpr `iOp` negate `dOp` negate)
     abs    = withReduce  $ fun "abs"    `iOp` abs    `dOp` abs
     signum = withReduce  $ fun "signum" `iOp` signum `dOp` signum
     fromInteger i = (lift i)
@@ -290,16 +327,16 @@ instance Real Expr where
 instance Integral Expr where
     quotRem a b = (quot a b, rem a b)
     divMod  a b = (div  a b, mod a b)
-    quot = withReduce2 $ op InfixL 7 " `quot` " `iOp2` quot
-    rem  = withReduce2 $ op InfixL 7 " `rem` "  `iOp2` rem
-    div  = withReduce2 $ op InfixL 7 " `div` "  `iOp2` div
-    mod  = withReduce2 $ op InfixL 7 " `mod` "  `iOp2` mod
+    quot = withReduce2 $ mkBinOp " `quot` " False False $ op InfixL 7 " `quot` " `iOp2` quot
+    rem  = withReduce2 $ mkBinOp " `rem` "  False False $ op InfixL 7 " `rem` "  `iOp2` rem
+    div  = withReduce2 $ mkBinOp " `div` "  False False $ op InfixL 7 " `div` "  `iOp2` div
+    mod  = withReduce2 $ mkBinOp " `mod` "  False False $ op InfixL 7 " `mod` "  `iOp2` mod
     toInteger someExpr = case intExpr someExpr of
           Just i -> i
           _      -> error $ "not an integer: " ++ show someExpr
 
 instance Fractional Expr where
-    (/)   = withReduce2 $ op InfixL 7 " / " `dOp2` (/)
+    (/)   = withReduce2 $ mkBinOp " / " False False $ op InfixL 7 " / " `dOp2` (/)
     recip = withReduce  $ fun "recip"  `dOp` recip
     fromRational r = fromDouble (fromRational r)
 
@@ -310,7 +347,7 @@ instance RealFrac Expr where
    --truncate = withReduce $ fun "truncate" `dOp` truncate
 
 instance RealFloat Expr where
-   atan2 = withReduce2 $ fun "atan2" `dOp2` atan2
+   atan2 = withReduce2 $ mkBinOp "atan2" False False $ fun "atan2" `dOp2` atan2
 
 fromDouble :: Double -> Expr
 fromDouble d = (lift d) { doubleExpr' = Just d }
@@ -320,7 +357,7 @@ instance Floating Expr where
     exp   = withReduce  $ fun "exp"   `dOp` exp
     sqrt  = withReduce  $ fun "sqrt"  `dOp` sqrt
     log   = withReduce  $ fun "log"   `dOp` log
-    (**)  = withReduce2 $ op InfixR 8 "**" `dOp2` (**)
+    (**)  = withReduce2 $ mkBinOp "**" False False $ op InfixR 8 "**" `dOp2` (**)
     sin   = withReduce  $ fun "sin"   `dOp` sin
     cos   = withReduce  $ fun "cos"   `dOp` cos
     sinh  = withReduce  $ fun "sinh"  `dOp` sinh
@@ -352,13 +389,13 @@ instance Bounded Expr where
 
 #if MIN_VERSION_base(4,9,0)
 instance Semigroup Expr where
-    (<>) = withReduce2 $ op InfixR 6 " <> "
+    (<>) = withReduce2 $ mkBinOp " <> " False True $ op InfixR 6 " <> "
 #endif
 
 instance Monoid Expr where
     mempty = var "mempty"
 #if !(MIN_VERSION_base(4,11,0))
-    mappend = withReduce2 $ op InfixR 6 " <> "
+    mappend = withReduce2 $ mkBinOp " <> " False True $ op InfixR 6 " <> "
 #endif
     mconcat = fun "mconcat"
 
