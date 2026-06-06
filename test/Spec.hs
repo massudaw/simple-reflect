@@ -1,0 +1,93 @@
+-- | Regression tests for Debug.SimpleReflect's simplification algorithm.
+--
+-- These are plain string comparisons against the rendered form of an
+-- expression (or of its full reduction chain), so the suite only depends on
+-- @base@ and the library itself. Run with @cabal test@.
+module Main (main) where
+
+import Debug.SimpleReflect
+import Debug.SimpleReflect.Expr
+
+import Data.List   (intercalate)
+import Control.Monad (forM)
+import System.Exit (exitFailure)
+
+-- | Render every reduction step, joined by @ => @.
+steps :: Expr -> String
+steps = intercalate " => " . map show . reduction
+
+-- | (description, actual rendering, expected rendering)
+type Case = (String, String, String)
+
+cases :: [Case]
+cases =
+  -- Identity elements ------------------------------------------------------
+  [ ("a + 0 = a",            show (a + 0),  "a")
+  , ("0 + a = a",            show (0 + a),  "a")
+  , ("a - 0 = a",            show (a - 0),  "a")
+  , ("x * 1 = x",            show (x * 1),  "x")
+  , ("1 * x = x",            show (1 * x),  "x")
+
+  -- Annihilator ------------------------------------------------------------
+  , ("x * 0 = 0",            show (x * 0),  "0")
+  , ("0 * x = 0",            show (0 * x),  "0")
+
+  -- Subtraction is NOT commutative: 0 - a must not collapse to a -----------
+  , ("0 - a = -a",           show (0 - a),  "-a")
+  , ("a - b unchanged",      show (a - b),  "a - b")
+  , ("0 - (a - 0) = -a",     steps (0 - (a - 0)),         "-a")
+  , ("(5 - 0) - a = 5 - a",  show ((5 - 0) - a),          "5 - a")
+
+  -- Numeric reduction chains still fold ------------------------------------
+  , ("reduce 0 - 7",         steps (0 - 7),               "-7 => -7")
+  , ("reduce 7 - 0",         show (7 - 0 :: Expr),        "7")
+  , ("reduce 10 - 3 - 2",    steps (10 - 3 - 2),          "10 - 3 - 2 => 7 - 2 => 5")
+  , ("reduce 1+2*(3+4)",     steps (1 + 2 * (3 + 4)),
+        "1 + 2 * (3 + 4) => 1 + 2 * 7 => 1 + 14 => 15")
+
+  -- Constant folding for * (commutative + associative) ---------------------
+  , ("2 * (x * 3) = x * 6",        show (2 * (x * 3)),          "x * 6")
+  , ("2 * (3 * (x * 4)) = x * 24", show (2 * (3 * (x * 4))),    "x * 24")
+  , ("nested * chain folds",       show (2 * (x * (3 * (y * 4)))), "y * x * 24")
+
+  -- Soundness: constants must NOT cross non-commutative operators ----------
+  , ("2 * (x - 3) untouched", show (2 * (x - 3)),          "2 * (x - 3)")
+  , ("2*(x-3)*4 = 8*(x-3)",   show (2 * (x - 3) * 4),      "8 * (x - 3)")
+  , ("5 * (x / 2) untouched", show (5 * (x / 2)),          "5 * (x / 2)")
+  , ("(a - b) * 3 untouched", show ((a - b) * 3),          "(a - b) * 3")
+  , ("2 * (x + 3) untouched", show (2 * (x + 3)),          "2 * (x + 3)")
+  , ("2 + (x + 3) untouched", show (2 + (x + 3)),          "2 + (x + 3)")
+
+  -- Unary minus rendering --------------------------------------------------
+  , ("negate a = -a",             show (negate a),         "-a")
+  , ("negate (a - b) = -(a - b)", show (negate (a - b)),   "-(a - b)")
+  , ("negate (x * y) = -x * y",   show (negate (x * y)),   "-x * y")
+  , ("a - negate b = a - (-b)",   show (a - negate b),     "a - (-b)")
+  , ("negate a - b = -a - b",     show (negate a - b),     "-a - b")
+  , ("a + negate b = a + (-b)",   show (a + negate b),     "a + (-b)")
+  , ("negate (x * 3) = x * (-3)", show (negate (x * 3)),   "x * (-3)")
+  , ("negate (2 * x) = (-2) * x", show (negate (2 * x)),   "(-2) * x")
+  , ("abs a unchanged",           show (abs a),            "abs a")
+  , ("signum a unchanged",        show (signum a),         "signum a")
+
+  -- Documented examples (README / module haddock) --------------------------
+  , ("sum [1..5]",       show (sum [1..5] :: Expr),       "1 + 2 + 3 + 4 + 5")
+  , ("foldr1 f [a,b,c]", show (foldr1 f [a,b,c]),         "f a (f b c)")
+  , ("iterate f x",      show (take 5 (iterate f x)),
+        "[x,f x,f (f x),f (f (f x)),f (f (f (f x)))]")
+  ]
+
+main :: IO ()
+main = do
+    results <- forM cases $ \(label, actual, expected) -> do
+        let ok = actual == expected
+        if ok
+          then putStrLn $ "PASS  " ++ label
+          else putStrLn $ "FAIL  " ++ label
+                       ++ "\n        expected: " ++ expected
+                       ++ "\n        actual:   " ++ actual
+        return ok
+    let passed = length (filter id results)
+        total  = length results
+    putStrLn $ "\n" ++ show passed ++ " / " ++ show total ++ " passed"
+    if passed == total then return () else exitFailure
