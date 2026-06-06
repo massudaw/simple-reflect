@@ -1,0 +1,22 @@
+Debug/SimpleReflect/Expr.hs
+  s_20c16a057d091e::t_9eb85c6b7a78a9 257-279
+  s_20c16a057d091e::t_4c21f5504a27d9 334
+test/Spec.hs
+  s_20c16a057d091e::t_396cc6da655c74 59-71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "109fc813000294e1b24871f864dc4a646c58977f",
+  "prompts": {},
+  "sessions": {
+    "s_20c16a057d091e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "57a53b34-0de8-49ab-b339-0b2a19a97e70",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Wesley Massuda <wesley.massuda@gmail.com>"
+    }
+  }
+}
