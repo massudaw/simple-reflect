@@ -120,6 +120,10 @@ cases =
   , ("(a * 2) / 2 = a * 1.0",    show ((a * 2) / 2),      "a * 1.0")
   , ("(-1) * (-x) = x",          show ((-1) * (-x)),      "x")
   , ("(-1) * (-1) = 1",          show (((-1) :: Expr) * (-1)), "1")
+  , ("negate (x + 5) untouched", show (negate (x + 5)),       "-(x + 5)")
+  , ("abs (x * 5) = abs x * abs 5", show (abs (x * 5)),       "abs x * abs 5")
+  , ("recip (x * 5) = recip x / 5", show (recip (x * 5)),     "recip x / 5")
+
 
   -- Specific exponentiation identity tests ---------------------------------
   , ("1 ** a = 1",               show (1 ** a),           "1")

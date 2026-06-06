@@ -349,8 +349,12 @@ distributeConstant op a b = applyBinOp op a b
 distributeUnary op expr
     | expr == 0                     = expr
     | Just expr' <- asNegation expr = expr'
-distributeUnary op (BinExpr expr l r ) | isConstant l = BinExpr expr (withReduce op l ) r
-distributeUnary op (BinExpr expr l r ) | isConstant r = BinExpr expr l (withReduce op r )
+distributeUnary op bin@(BinExpr expr l r)
+    | opName expr == " * " =
+        if isConstant l then BinExpr expr (withReduce op l) r
+        else if isConstant r then BinExpr expr l (withReduce op r)
+        else op bin
+    | otherwise = op bin
 distributeUnary op expr = op expr
 
 absExpr :: Expr -> Expr
@@ -360,9 +364,13 @@ distributeUnaryAbs :: (Expr -> Expr) -> Expr -> Expr
 distributeUnaryAbs op expr
     | Just expr' <- asNegation expr               = abs expr'
     | Just expr' <- asAbs expr                    = expr
-    | (BinExpr exprBin l r) <- expr, isConstant l = BinExpr exprBin (withReduce op l ) r
-    | (BinExpr exprBin l r) <- expr, isConstant r = BinExpr exprBin l (withReduce op r )
-    | otherwise                                   = op expr
+distributeUnaryAbs op bin@(BinExpr exprBin l r)
+    | opName exprBin == " * " =
+        if isConstant l then BinExpr exprBin (withReduce op l) (abs r)
+        else if isConstant r then BinExpr exprBin (abs l) (withReduce op r)
+        else op bin
+    | otherwise = op bin
+distributeUnaryAbs op expr = op expr
 
 signumExpr :: Expr -> Expr
 signumExpr a = (fun "signum" a) { signumed' = Just a }
@@ -370,9 +378,13 @@ signumExpr a = (fun "signum" a) { signumed' = Just a }
 distributeUnarySignum :: (Expr -> Expr) -> Expr -> Expr
 distributeUnarySignum op expr
     | Just expr' <- asSignum expr                 = expr
-    | (BinExpr exprBin l r) <- expr, isConstant l = BinExpr exprBin (withReduce op l ) r
-    | (BinExpr exprBin l r) <- expr, isConstant r = BinExpr exprBin l (withReduce op r )
-    | otherwise                                   = op expr
+distributeUnarySignum op bin@(BinExpr exprBin l r)
+    | opName exprBin == " * " =
+        if isConstant l then BinExpr exprBin (withReduce op l) (signum r)
+        else if isConstant r then BinExpr exprBin (signum l) (withReduce op r)
+        else op bin
+    | otherwise = op bin
+distributeUnarySignum op expr = op expr
 
 recipExpr :: Expr -> Expr
 recipExpr a = (fun "recip" a) { reciped' = Just a }
@@ -381,9 +393,13 @@ distributeUnaryRecip :: (Expr -> Expr) -> Expr -> Expr
 distributeUnaryRecip op expr
     | expr == 1                     = expr
     | Just expr' <- asRecip expr    = expr'
-    | (BinExpr exprBin l r) <- expr, isConstant l = BinExpr exprBin (withReduce op l ) r
-    | (BinExpr exprBin l r) <- expr, isConstant r = BinExpr exprBin l (withReduce op r )
-    | otherwise                     = op expr
+distributeUnaryRecip op bin@(BinExpr exprBin l r)
+    | opName exprBin == " * " =
+        if isConstant l then BinExpr exprBin (withReduce op l) (recip r)
+        else if isConstant r then BinExpr exprBin (recip l) (withReduce op r)
+        else op bin
+    | otherwise = op bin
+distributeUnaryRecip op expr = op expr
 
 expExpr :: Expr -> Expr
 expExpr a = (fun "exp" a) { exped' = Just a }
