@@ -59,6 +59,8 @@ data Expr
    , absed'      :: Maybe Expr    -- ^ If this is @abs e@, the operand @e@
    , signumed'   :: Maybe Expr    -- ^ If this is @signum e@, the operand @e@
    , reciped'    :: Maybe Expr    -- ^ If this is @recip e@, the operand @e@
+   , exped'      :: Maybe Expr
+   , logged'     :: Maybe Expr
    }
    | BinExpr
    { operation :: BinOp
@@ -103,6 +105,14 @@ asRecip :: Expr -> Maybe Expr
 asRecip Expr{ reciped' = r } = r
 asRecip _                    = Nothing
 
+asExp :: Expr -> Maybe Expr
+asExp Expr{ exped' = e } = e
+asExp _                  = Nothing
+
+asLog :: Expr -> Maybe Expr
+asLog Expr{ logged' = l } = l
+asLog _                   = Nothing
+
 rewriteReducedBinOp bin@(BinExpr expr argL argR )=
   let rr = applyBinOp expr argL argR
   in fromMaybe bin $
@@ -130,6 +140,8 @@ emptyExpr = Expr { showExpr'   = \_ -> showString ""
                  , absed'      = Nothing
                  , signumed'   = Nothing
                  , reciped'    = Nothing
+                 , exped'      = Nothing
+                 , logged'     = Nothing
                  }
 
 ------------------------------------------------------------------------------
@@ -318,6 +330,25 @@ distributeUnaryRecip op expr
     | (BinExpr exprBin l r) <- expr, isConstant l = BinExpr exprBin (withReduce op l ) r
     | (BinExpr exprBin l r) <- expr, isConstant r = BinExpr exprBin l (withReduce op r )
     | otherwise                     = op expr
+
+expExpr :: Expr -> Expr
+expExpr a = (fun "exp" a) { exped' = Just a }
+
+distributeUnaryExp :: (Expr -> Expr) -> Expr -> Expr
+distributeUnaryExp op expr
+    | expr == 0                   = 1
+    | Just expr' <- asLog expr    = expr'
+    | otherwise                   = op expr
+
+logExpr :: Expr -> Expr
+logExpr a = (fun "log" a) { logged' = Just a }
+
+distributeUnaryLog :: (Expr -> Expr) -> Expr -> Expr
+distributeUnaryLog op expr
+    | expr == 1                   = 0
+    | Just expr' <- asExp expr    = expr'
+    | otherwise                   = op expr
+
 powRule :: Expr -> Expr -> Expr -> Expr
 powRule a b fallback
     | b == 0    = 1
@@ -494,9 +525,9 @@ fromDouble d = (lift d) { doubleExpr' = Just d }
 
 instance Floating Expr where
     pi    = (var "pi") { doubleExpr' = Just pi }
-    exp   = withReduce  $ fun "exp"   `dOp` exp
+    exp   = withReduce  $ distributeUnaryExp (expExpr   `dOp` exp)
     sqrt  = withReduce  $ fun "sqrt"  `dOp` sqrt
-    log   = withReduce  $ fun "log"   `dOp` log
+    log   = withReduce  $ distributeUnaryLog (logExpr   `dOp` log)
     (**)  = withReduce2Pow $ mkBinOp "**" False False $ op InfixR 8 "**" `dOp2` (**)
     sin   = withReduce  $ fun "sin"   `dOp` sin
     cos   = withReduce  $ fun "cos"   `dOp` cos

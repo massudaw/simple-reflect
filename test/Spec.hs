@@ -134,6 +134,14 @@ cases =
   , ("(2 - 2) ** a = 0",         steps ((2 - 2) ** a),    "0 => 0")
   , ("a ** (2 - 2) = 1",         steps (a ** (2 - 2)),    "1 => 1")
 
+  -- Specific exponential & logarithmic tests -------------------------------
+  , ("exp 0 = 1",                show (exp 0 :: Expr),    "1")
+  , ("log 1 = 0",                show (log 1 :: Expr),    "0")
+  , ("log (exp a) = a",          show (log (exp a)),      "a")
+  , ("exp (log a) = a",          show (exp (log a)),      "a")
+  , ("log (exp (2 - 1))",        steps (log (exp (2 - 1))), "2 - 1 => 2 - 1 => 1 => log 2.718281828459045 => 1.0")
+
+
   -- Sign normalization: a + (negation) => a - x, and vice versa -----------
   , ("a + negate b = a - b",      show (a + negate b),     "a - b")
   , ("a - negate b = a + b",      show (a - negate b),     "a + b")
