@@ -147,6 +147,19 @@ cases =
   , ("sqrt (recip a) = recip (sqrt a)", show (sqrt (recip a)), "recip (sqrt a)")
   , ("sqrt (recip (2 - 1))",     steps (sqrt (recip (2 - 1))), "1 => 1 => 1 => 1 => 1")
 
+  -- Specific trigonometric & hyperbolic tests ------------------------------
+  , ("sin 0 = 0",                show (sin 0 :: Expr),    "0")
+  , ("cos 0 = 1",                show (cos 0 :: Expr),    "1")
+  , ("sinh 0 = 0",               show (sinh 0 :: Expr),   "0")
+  , ("cosh 0 = 1",               show (cosh 0 :: Expr),   "1")
+  , ("asin 0 = 0",               show (asin 0 :: Expr),   "0")
+  , ("atan 0 = 0",               show (atan 0 :: Expr),   "0")
+  , ("sin (negate a) = -sin a",  show (sin (negate a)),   "-sin a")
+  , ("cos (negate a) = cos a",   show (cos (negate a)),   "cos a")
+  , ("sinh (negate a) = -sinh a", show (sinh (negate a)), "-sinh a")
+  , ("cosh (negate a) = cosh a",  show (cosh (negate a)), "cosh a")
+
+
 
 
   -- Sign normalization: a + (negation) => a - x, and vice versa -----------

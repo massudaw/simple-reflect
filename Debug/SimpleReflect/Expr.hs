@@ -62,6 +62,12 @@ data Expr
    , exped'      :: Maybe Expr
    , logged'     :: Maybe Expr
    , sqrted'     :: Maybe Expr
+   , sined'      :: Maybe Expr
+   , cosed'      :: Maybe Expr
+   , sinhed'     :: Maybe Expr
+   , coshed'     :: Maybe Expr
+   , asined'     :: Maybe Expr
+   , ataned'     :: Maybe Expr
    }
    | BinExpr
    { operation :: BinOp
@@ -118,6 +124,30 @@ asSqrt :: Expr -> Maybe Expr
 asSqrt Expr{ sqrted' = s } = s
 asSqrt _                   = Nothing
 
+asSin :: Expr -> Maybe Expr
+asSin Expr{ sined' = s } = s
+asSin _                  = Nothing
+
+asCos :: Expr -> Maybe Expr
+asCos Expr{ cosed' = c } = c
+asCos _                  = Nothing
+
+asSinh :: Expr -> Maybe Expr
+asSinh Expr{ sinhed' = s } = s
+asSinh _                   = Nothing
+
+asCosh :: Expr -> Maybe Expr
+asCosh Expr{ coshed' = c } = c
+asCosh _                   = Nothing
+
+asAsin :: Expr -> Maybe Expr
+asAsin Expr{ asined' = a } = a
+asAsin _                   = Nothing
+
+asAtan :: Expr -> Maybe Expr
+asAtan Expr{ ataned' = a } = a
+asAtan _                   = Nothing
+
 rewriteReducedBinOp bin@(BinExpr expr argL argR )=
   let rr = applyBinOp expr argL argR
   in fromMaybe bin $
@@ -148,6 +178,12 @@ emptyExpr = Expr { showExpr'   = \_ -> showString ""
                  , exped'      = Nothing
                  , logged'     = Nothing
                  , sqrted'     = Nothing
+                 , sined'      = Nothing
+                 , cosed'      = Nothing
+                 , sinhed'     = Nothing
+                 , coshed'     = Nothing
+                 , asined'     = Nothing
+                 , ataned'     = Nothing
                  }
 
 ------------------------------------------------------------------------------
@@ -365,6 +401,58 @@ distributeUnarySqrt op expr
     | Just expr' <- asRecip expr  = recip (sqrt expr')
     | otherwise                   = op expr
 
+sinExpr :: Expr -> Expr
+sinExpr a = (fun "sin" a) { sined' = Just a }
+
+distributeUnarySin :: (Expr -> Expr) -> Expr -> Expr
+distributeUnarySin op expr
+    | expr == 0                   = 0
+    | Just expr' <- asNegation expr = negate (sin expr')
+    | otherwise                   = op expr
+
+cosExpr :: Expr -> Expr
+cosExpr a = (fun "cos" a) { cosed' = Just a }
+
+distributeUnaryCos :: (Expr -> Expr) -> Expr -> Expr
+distributeUnaryCos op expr
+    | expr == 0                   = 1
+    | Just expr' <- asNegation expr = cos expr'
+    | otherwise                   = op expr
+
+sinhExpr :: Expr -> Expr
+sinhExpr a = (fun "sinh" a) { sinhed' = Just a }
+
+distributeUnarySinh :: (Expr -> Expr) -> Expr -> Expr
+distributeUnarySinh op expr
+    | expr == 0                   = 0
+    | Just expr' <- asNegation expr = negate (sinh expr')
+    | otherwise                   = op expr
+
+coshExpr :: Expr -> Expr
+coshExpr a = (fun "cosh" a) { coshed' = Just a }
+
+distributeUnaryCosh :: (Expr -> Expr) -> Expr -> Expr
+distributeUnaryCosh op expr
+    | expr == 0                   = 1
+    | Just expr' <- asNegation expr = cosh expr'
+    | otherwise                   = op expr
+
+asinExpr :: Expr -> Expr
+asinExpr a = (fun "asin" a) { asined' = Just a }
+
+distributeUnaryAsin :: (Expr -> Expr) -> Expr -> Expr
+distributeUnaryAsin op expr
+    | expr == 0                   = 0
+    | otherwise                   = op expr
+
+atanExpr :: Expr -> Expr
+atanExpr a = (fun "atan" a) { ataned' = Just a }
+
+distributeUnaryAtan :: (Expr -> Expr) -> Expr -> Expr
+distributeUnaryAtan op expr
+    | expr == 0                   = 0
+    | otherwise                   = op expr
+
 powRule :: Expr -> Expr -> Expr -> Expr
 powRule a b fallback
     | b == 0    = 1
@@ -545,13 +633,13 @@ instance Floating Expr where
     sqrt  = withReduce  $ distributeUnarySqrt (sqrtExpr `dOp` sqrt)
     log   = withReduce  $ distributeUnaryLog (logExpr   `dOp` log)
     (**)  = withReduce2Pow $ mkBinOp "**" False False $ op InfixR 8 "**" `dOp2` (**)
-    sin   = withReduce  $ fun "sin"   `dOp` sin
-    cos   = withReduce  $ fun "cos"   `dOp` cos
-    sinh  = withReduce  $ fun "sinh"  `dOp` sinh
-    cosh  = withReduce  $ fun "cosh"  `dOp` cosh
-    asin  = withReduce  $ fun "asin"  `dOp` asin
+    sin   = withReduce  $ distributeUnarySin (sinExpr `dOp` sin)
+    cos   = withReduce  $ distributeUnaryCos (cosExpr `dOp` cos)
+    sinh  = withReduce  $ distributeUnarySinh (sinhExpr `dOp` sinh)
+    cosh  = withReduce  $ distributeUnaryCosh (coshExpr `dOp` cosh)
+    asin  = withReduce  $ distributeUnaryAsin (asinExpr `dOp` asin)
     acos  = withReduce  $ fun "acos"  `dOp` acos
-    atan  = withReduce  $ fun "atan"  `dOp` atan
+    atan  = withReduce  $ distributeUnaryAtan (atanExpr `dOp` atan)
     asinh = withReduce  $ fun "asinh" `dOp` asinh
     acosh = withReduce  $ fun "acosh" `dOp` acosh
     atanh = withReduce  $ fun "atanh" `dOp` atanh
