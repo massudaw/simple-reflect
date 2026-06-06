@@ -48,34 +48,39 @@ data BinOp = BinOp
     , onLeftIdentity :: Maybe (Expr -> Expr)    -- ^ If @Just f@, then @ident `op` b@ simplifies to @f b@ (e.g. @id@ for @+@, @negate@ for @-@)
     }
 
+-- | Identifies which unary function produced an expression, so that
+--   simplification rules (idempotence, inverses, sign rules, …) can recognise
+--   it. A single tagged field replaces the per-function boolean fields.
+data UnaryTag
+   = UNegate | UAbs | USignum | URecip | UExp | ULog | USqrt
+   | USin | UCos | USinh | UCosh | UAsin | UAtan | USucc | UPred
+   deriving (Eq)
+
 -- | A reflected expression
 data Expr
    = Expr
-   { showExpr'   :: Int -> ShowS  -- ^ Show with the given precedence level
-   , intExpr'    :: Maybe Integer -- ^ Integer value?
-   , doubleExpr' :: Maybe Double  -- ^ Floating value?
-   , reduced'    :: Maybe Expr    -- ^ Next reduction step
-   , negated'    :: Maybe Expr    -- ^ If this is @negate e@, the operand @e@ (used for sign normalization)
-   , absed'      :: Maybe Expr    -- ^ If this is @abs e@, the operand @e@
-   , signumed'   :: Maybe Expr    -- ^ If this is @signum e@, the operand @e@
-   , reciped'    :: Maybe Expr    -- ^ If this is @recip e@, the operand @e@
-   , exped'      :: Maybe Expr
-   , logged'     :: Maybe Expr
-   , sqrted'     :: Maybe Expr
-   , sined'      :: Maybe Expr
-   , cosed'      :: Maybe Expr
-   , sinhed'     :: Maybe Expr
-   , coshed'     :: Maybe Expr
-   , asined'     :: Maybe Expr
-   , ataned'     :: Maybe Expr
-   , succed'     :: Maybe Expr
-   , preded'     :: Maybe Expr
+   { showExpr'   :: Int -> ShowS         -- ^ Show with the given precedence level
+   , intExpr'    :: Maybe Integer        -- ^ Integer value?
+   , doubleExpr' :: Maybe Double         -- ^ Floating value?
+   , reduced'    :: Maybe Expr           -- ^ Next reduction step
+   , unary'      :: Maybe (UnaryTag, Expr)
+       -- ^ If this is @f e@ for a tracked unary @f@, the tag and operand @e@
+       --   (used for sign normalization, idempotence and inverse rules)
    }
    | BinExpr
    { operation :: BinOp
    , argL :: Expr    -- ^ Left operand
    , argR :: Expr    -- ^ Right operand
    }
+
+-- | The operand, if the expression was produced by the given unary function.
+asUnary :: UnaryTag -> Expr -> Maybe Expr
+asUnary t Expr{ unary' = Just (t', e) } | t == t' = Just e
+asUnary _ _                                       = Nothing
+
+-- | Tag a shown expression as the application of a unary function to @a@.
+mkUnary :: UnaryTag -> Expr -> Expr -> Expr
+mkUnary t shown a = shown { unary' = Just (t, a) }
 
 showExpr  r@(Expr {}) p = showExpr' r p
 showExpr (BinExpr expr argL argR) p  =  showExpr (applyBinOp expr argL argR) p
@@ -100,10 +105,8 @@ asNegation e
     | Just n <- intExpr    e, n < 0     = Just (fromInteger (negate n))
     | Just d <- doubleExpr e, d < 0     = Just (fromDouble  (negate d))
     | Just e' <- negatedProduct e       = Just e'
-    | otherwise                         = negatedOf e
-  where negatedOf Expr{ negated' = n } = n
-        negatedOf _                    = Nothing
-        -- A product with a negative constant factor is a negation, since
+    | otherwise                         = asUnary UNegate e
+  where -- A product with a negative constant factor is a negation, since
         -- @(-c) * y == negate (c * y)@ for any @y@. (Only products carrying a
         -- constant factor are tagged 'BinExpr's, which is exactly the case we
         -- can detect here.) This lets @a + (-0.5)*y@ print as @a - 0.5*y@.
@@ -112,61 +115,22 @@ asNegation e
             | opName o == " * ", isConstant r, Just r' <- asNegation r = Just (applyBinOp o l r')
         negatedProduct _ = Nothing
 
-asAbs :: Expr -> Maybe Expr
-asAbs Expr{ absed' = a } = a
-asAbs _                  = Nothing
-
-asSignum :: Expr -> Maybe Expr
-asSignum Expr{ signumed' = s } = s
-asSignum _                     = Nothing
-
-asRecip :: Expr -> Maybe Expr
-asRecip Expr{ reciped' = r } = r
-asRecip _                    = Nothing
-
-asExp :: Expr -> Maybe Expr
-asExp Expr{ exped' = e } = e
-asExp _                  = Nothing
-
-asLog :: Expr -> Maybe Expr
-asLog Expr{ logged' = l } = l
-asLog _                   = Nothing
-
-asSqrt :: Expr -> Maybe Expr
-asSqrt Expr{ sqrted' = s } = s
-asSqrt _                   = Nothing
-
-asSin :: Expr -> Maybe Expr
-asSin Expr{ sined' = s } = s
-asSin _                  = Nothing
-
-asCos :: Expr -> Maybe Expr
-asCos Expr{ cosed' = c } = c
-asCos _                  = Nothing
-
-asSinh :: Expr -> Maybe Expr
-asSinh Expr{ sinhed' = s } = s
-asSinh _                   = Nothing
-
-asCosh :: Expr -> Maybe Expr
-asCosh Expr{ coshed' = c } = c
-asCosh _                   = Nothing
-
-asAsin :: Expr -> Maybe Expr
-asAsin Expr{ asined' = a } = a
-asAsin _                   = Nothing
-
-asAtan :: Expr -> Maybe Expr
-asAtan Expr{ ataned' = a } = a
-asAtan _                   = Nothing
-
-asSucc :: Expr -> Maybe Expr
-asSucc Expr{ succed' = s } = s
-asSucc _                   = Nothing
-
-asPred :: Expr -> Maybe Expr
-asPred Expr{ preded' = p } = p
-asPred _                   = Nothing
+asAbs, asSignum, asRecip, asExp, asLog, asSqrt, asSin, asCos,
+  asSinh, asCosh, asAsin, asAtan, asSucc, asPred :: Expr -> Maybe Expr
+asAbs    = asUnary UAbs
+asSignum = asUnary USignum
+asRecip  = asUnary URecip
+asExp    = asUnary UExp
+asLog    = asUnary ULog
+asSqrt   = asUnary USqrt
+asSin    = asUnary USin
+asCos    = asUnary UCos
+asSinh   = asUnary USinh
+asCosh   = asUnary UCosh
+asAsin   = asUnary UAsin
+asAtan   = asUnary UAtan
+asSucc   = asUnary USucc
+asPred   = asUnary UPred
 
 rewriteReducedBinOp bin@(BinExpr expr argL argR )=
   let rr = applyBinOp expr argL argR
@@ -191,21 +155,7 @@ emptyExpr = Expr { showExpr'   = \_ -> showString ""
                  , intExpr'    = Nothing
                  , doubleExpr' = Nothing
                  , reduced'    = Nothing
-                 , negated'    = Nothing
-                 , absed'      = Nothing
-                 , signumed'   = Nothing
-                 , reciped'    = Nothing
-                 , exped'      = Nothing
-                 , logged'     = Nothing
-                 , sqrted'     = Nothing
-                 , sined'      = Nothing
-                 , cosed'      = Nothing
-                 , sinhed'     = Nothing
-                 , coshed'     = Nothing
-                 , asined'     = Nothing
-                 , ataned'     = Nothing
-                 , succed'     = Nothing
-                 , preded'     = Nothing
+                 , unary'      = Nothing
                  }
 
 ------------------------------------------------------------------------------
@@ -231,11 +181,10 @@ op fix prec opName a b = emptyExpr { showExpr' = showFun }
                      . showExpr b (if fix == InfixR then prec else prec + 1)
 
 -- | Prefix unary minus, rendered as @-a@ (precedence 6, like Haskell's own
---   unary minus) rather than as @negate a@. Tagged via 'negated'' so that
---   sign normalization can recognise it (e.g. @x + negate y@ => @x - y@).
+--   unary minus) rather than as @negate a@. Tagged 'UNegate' so that sign
+--   normalization can recognise it (e.g. @x + negate y@ => @x - y@).
 negateExpr :: Expr -> Expr
-negateExpr a = emptyExpr { showExpr' = \p -> showParen (p > 6) $ showString "-" . showExpr a 7
-                         , negated'  = Just a }
+negateExpr a = mkUnary UNegate (emptyExpr { showExpr' = \p -> showParen (p > 6) $ showString "-" . showExpr a 7 }) a
 
 -- | Show builder for @+@ that normalizes signs: @a + (-b)@ renders as
 --   @a - b@ (and @(-a) + b@ as @b - a@, since @+@ is commutative).
@@ -387,7 +336,7 @@ distributeUnary op bin@(BinExpr expr l r)
 distributeUnary op expr = op expr
 
 absExpr :: Expr -> Expr
-absExpr a = (fun "abs" a) { absed' = Just a }
+absExpr a = mkUnary UAbs (fun "abs" a) a
 
 distributeUnaryAbs :: (Expr -> Expr) -> Expr -> Expr
 distributeUnaryAbs op expr
@@ -402,7 +351,7 @@ distributeUnaryAbs op bin@(BinExpr exprBin l r)
 distributeUnaryAbs op expr = op expr
 
 signumExpr :: Expr -> Expr
-signumExpr a = (fun "signum" a) { signumed' = Just a }
+signumExpr a = mkUnary USignum (fun "signum" a) a
 
 distributeUnarySignum :: (Expr -> Expr) -> Expr -> Expr
 distributeUnarySignum op expr
@@ -416,7 +365,7 @@ distributeUnarySignum op bin@(BinExpr exprBin l r)
 distributeUnarySignum op expr = op expr
 
 recipExpr :: Expr -> Expr
-recipExpr a = (fun "recip" a) { reciped' = Just a }
+recipExpr a = mkUnary URecip (fun "recip" a) a
 
 distributeUnaryRecip :: (Expr -> Expr) -> Expr -> Expr
 distributeUnaryRecip op expr
@@ -431,7 +380,7 @@ distributeUnaryRecip op bin@(BinExpr exprBin l r)
 distributeUnaryRecip op expr = op expr
 
 expExpr :: Expr -> Expr
-expExpr a = (fun "exp" a) { exped' = Just a }
+expExpr a = mkUnary UExp (fun "exp" a) a
 
 distributeUnaryExp :: (Expr -> Expr) -> Expr -> Expr
 distributeUnaryExp op expr
@@ -440,7 +389,7 @@ distributeUnaryExp op expr
     | otherwise                   = op expr
 
 logExpr :: Expr -> Expr
-logExpr a = (fun "log" a) { logged' = Just a }
+logExpr a = mkUnary ULog (fun "log" a) a
 
 distributeUnaryLog :: (Expr -> Expr) -> Expr -> Expr
 distributeUnaryLog op expr
@@ -449,7 +398,7 @@ distributeUnaryLog op expr
     | otherwise                   = op expr
 
 sqrtExpr :: Expr -> Expr
-sqrtExpr a = (fun "sqrt" a) { sqrted' = Just a }
+sqrtExpr a = mkUnary USqrt (fun "sqrt" a) a
 
 distributeUnarySqrt :: (Expr -> Expr) -> Expr -> Expr
 distributeUnarySqrt op expr
@@ -459,7 +408,7 @@ distributeUnarySqrt op expr
     | otherwise                   = op expr
 
 sinExpr :: Expr -> Expr
-sinExpr a = (fun "sin" a) { sined' = Just a }
+sinExpr a = mkUnary USin (fun "sin" a) a
 
 distributeUnarySin :: (Expr -> Expr) -> Expr -> Expr
 distributeUnarySin op expr
@@ -468,7 +417,7 @@ distributeUnarySin op expr
     | otherwise                   = op expr
 
 cosExpr :: Expr -> Expr
-cosExpr a = (fun "cos" a) { cosed' = Just a }
+cosExpr a = mkUnary UCos (fun "cos" a) a
 
 distributeUnaryCos :: (Expr -> Expr) -> Expr -> Expr
 distributeUnaryCos op expr
@@ -477,7 +426,7 @@ distributeUnaryCos op expr
     | otherwise                   = op expr
 
 sinhExpr :: Expr -> Expr
-sinhExpr a = (fun "sinh" a) { sinhed' = Just a }
+sinhExpr a = mkUnary USinh (fun "sinh" a) a
 
 distributeUnarySinh :: (Expr -> Expr) -> Expr -> Expr
 distributeUnarySinh op expr
@@ -486,7 +435,7 @@ distributeUnarySinh op expr
     | otherwise                   = op expr
 
 coshExpr :: Expr -> Expr
-coshExpr a = (fun "cosh" a) { coshed' = Just a }
+coshExpr a = mkUnary UCosh (fun "cosh" a) a
 
 distributeUnaryCosh :: (Expr -> Expr) -> Expr -> Expr
 distributeUnaryCosh op expr
@@ -495,7 +444,7 @@ distributeUnaryCosh op expr
     | otherwise                   = op expr
 
 asinExpr :: Expr -> Expr
-asinExpr a = (fun "asin" a) { asined' = Just a }
+asinExpr a = mkUnary UAsin (fun "asin" a) a
 
 distributeUnaryAsin :: (Expr -> Expr) -> Expr -> Expr
 distributeUnaryAsin op expr
@@ -503,7 +452,7 @@ distributeUnaryAsin op expr
     | otherwise                   = op expr
 
 atanExpr :: Expr -> Expr
-atanExpr a = (fun "atan" a) { ataned' = Just a }
+atanExpr a = mkUnary UAtan (fun "atan" a) a
 
 distributeUnaryAtan :: (Expr -> Expr) -> Expr -> Expr
 distributeUnaryAtan op expr
@@ -511,7 +460,7 @@ distributeUnaryAtan op expr
     | otherwise                   = op expr
 
 succExpr :: Expr -> Expr
-succExpr a = (fun "succ" a) { succed' = Just a }
+succExpr a = mkUnary USucc (fun "succ" a) a
 
 distributeUnarySucc :: (Expr -> Expr) -> Expr -> Expr
 distributeUnarySucc op expr
@@ -519,7 +468,7 @@ distributeUnarySucc op expr
     | otherwise                   = op expr
 
 predExpr :: Expr -> Expr
-predExpr a = (fun "pred" a) { preded' = Just a }
+predExpr a = mkUnary UPred (fun "pred" a) a
 
 distributeUnaryPred :: (Expr -> Expr) -> Expr -> Expr
 distributeUnaryPred op expr
