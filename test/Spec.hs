@@ -74,13 +74,21 @@ cases =
   , ("negate a = -a",             show (negate a),         "-a")
   , ("negate (a - b) = -(a - b)", show (negate (a - b)),   "-(a - b)")
   , ("negate (x * y) = -x * y",   show (negate (x * y)),   "-x * y")
-  , ("a - negate b = a - (-b)",   show (a - negate b),     "a - (-b)")
   , ("negate a - b = -a - b",     show (negate a - b),     "-a - b")
-  , ("a + negate b = a + (-b)",   show (a + negate b),     "a + (-b)")
   , ("negate (x * 3) = x * (-3)", show (negate (x * 3)),   "x * (-3)")
   , ("negate (2 * x) = (-2) * x", show (negate (2 * x)),   "(-2) * x")
   , ("abs a unchanged",           show (abs a),            "abs a")
   , ("signum a unchanged",        show (signum a),         "signum a")
+
+  -- Sign normalization: a + (negation) => a - x, and vice versa -----------
+  , ("a + negate b = a - b",      show (a + negate b),     "a - b")
+  , ("a - negate b = a + b",      show (a - negate b),     "a + b")
+  , ("negate a + b = b - a",      show (negate a + b),     "b - a")
+  , ("x + (-1) = x - 1",          show (x + (-1)),         "x - 1")
+  , ("(-1) + x = x - 1",          show ((-1) + x),         "x - 1")
+  , ("x - (-3) = x + 3",          show (x - (-3)),         "x + 3")
+  , ("x + 2 + (-3) = x - 1",      show (x + 2 + (-3)),     "x - 1")
+  , ("x + negate (a+b)",          show (x + negate (a + b)), "x - (a + b)")
 
   -- Documented examples (README / module haddock) --------------------------
   , ("sum [1..5]",       show (sum [1..5] :: Expr),       "1 + 2 + 3 + 4 + 5")

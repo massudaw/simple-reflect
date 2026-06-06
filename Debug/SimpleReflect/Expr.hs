@@ -55,6 +55,7 @@ data Expr
    , intExpr'    :: Maybe Integer -- ^ Integer value?
    , doubleExpr' :: Maybe Double  -- ^ Floating value?
    , reduced'    :: Maybe Expr    -- ^ Next reduction step
+   , negated'    :: Maybe Expr    -- ^ If this is @negate e@, the operand @e@ (used for sign normalization)
    }
    | BinExpr
    { operation :: BinOp
@@ -65,14 +66,24 @@ data Expr
 showExpr  r@(Expr {}) p = showExpr' r p
 showExpr (BinExpr expr argL argR) p  =  showExpr (applyBinOp expr argL argR) p
 
-intExpr (Expr _ i _ _ ) = i
+intExpr (Expr _ i _ _ _ ) = i
 intExpr _ = Nothing
 
-doubleExpr (Expr _ _ i _ ) = i
+doubleExpr (Expr _ _ i _ _ ) = i
 doubleExpr _ = Nothing
 
-reduced (Expr _ _ _ i ) = i
+reduced (Expr _ _ _ i _ ) = i
 reduced (BinExpr e l r) =  reduced (applyBinOp e l r)
+
+-- | If the expression is a negation (a negative numeric constant or a
+--   @negate e@), return the (positive) operand. Used for sign normalization.
+asNegation :: Expr -> Maybe Expr
+asNegation e
+    | Just n <- intExpr    e, n < 0     = Just (fromInteger (negate n))
+    | Just d <- doubleExpr e, d < 0     = Just (fromDouble  (negate d))
+    | otherwise                         = negatedOf e
+  where negatedOf (Expr _ _ _ _ n) = n
+        negatedOf _                = Nothing
 
 rewriteReducedBinOp bin@(BinExpr expr argL argR )=
   let rr = applyBinOp expr argL argR
@@ -97,6 +108,7 @@ emptyExpr = Expr { showExpr'   = \_ -> showString ""
                  , intExpr'    = Nothing
                  , doubleExpr' = Nothing
                  , reduced'    = Nothing
+                 , negated'    = Nothing
                  }
 
 ------------------------------------------------------------------------------
@@ -122,9 +134,25 @@ op fix prec opName a b = emptyExpr { showExpr' = showFun }
                      . showExpr b (if fix == InfixR then prec else prec + 1)
 
 -- | Prefix unary minus, rendered as @-a@ (precedence 6, like Haskell's own
---   unary minus) rather than as @negate a@.
+--   unary minus) rather than as @negate a@. Tagged via 'negated'' so that
+--   sign normalization can recognise it (e.g. @x + negate y@ => @x - y@).
 negateExpr :: Expr -> Expr
-negateExpr a = emptyExpr { showExpr' = \p -> showParen (p > 6) $ showString "-" . showExpr a 7 }
+negateExpr a = emptyExpr { showExpr' = \p -> showParen (p > 6) $ showString "-" . showExpr a 7
+                         , negated'  = Just a }
+
+-- | Show builder for @+@ that normalizes signs: @a + (-b)@ renders as
+--   @a - b@ (and @(-a) + b@ as @b - a@, since @+@ is commutative).
+addShow :: Expr -> Expr -> Expr
+addShow a b
+    | Just b' <- asNegation b = op InfixL 6 " - " a b'
+    | Just a' <- asNegation a = op InfixL 6 " - " b a'
+    | otherwise               = op InfixL 6 " + " a b
+
+-- | Show builder for @-@ that normalizes signs: @a - (-b)@ renders as @a + b@.
+subShow :: Expr -> Expr -> Expr
+subShow a b
+    | Just b' <- asNegation b = op InfixL 6 " + " a b'
+    | otherwise               = op InfixL 6 " - " a b
 
 ------------------------------------------------------------------------------
 -- Adding numeric results
@@ -331,8 +359,8 @@ instance Ord Expr where
     max = fun "max" `iOp2` max `dOp2` max
 
 instance Num Expr where
-    (+)    = withReduce2IdentityDistribute 0 $ mkBinOp " + " True  True  $ op InfixL 6 " + " `iOp2` (+)   `dOp2` (+)
-    (-)    = withReduce2Identity 0 $ (mkBinOp " - " False False $ op InfixL 6 " - " `iOp2` (-)   `dOp2` (-)) { onLeftIdentity = Just negate }
+    (+)    = withReduce2IdentityDistribute 0 $ mkBinOp " + " True  True  $ addShow `iOp2` (+)   `dOp2` (+)
+    (-)    = withReduce2Identity 0 $ (mkBinOp " - " False False $ subShow `iOp2` (-)   `dOp2` (-)) { onLeftIdentity = Just negate }
     (*)    = withReduce2AnnihilateAndIdentity 0 1 $ mkBinOp " * " True True $ op InfixL 7 " * " `iOp2` (*)   `dOp2` (*)
     negate = withReduce  $ distributeUnary (negateExpr `iOp` negate `dOp` negate)
     abs    = withReduce  $ fun "abs"    `iOp` abs    `dOp` abs
