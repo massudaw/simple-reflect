@@ -1,0 +1,19 @@
+.github/workflows/ci.yml
+  s_20c16a057d091e::t_ba915322724071 19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "8a95b9166d4b905e93a1429938b87d122d33efec",
+  "prompts": {},
+  "sessions": {
+    "s_20c16a057d091e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "57a53b34-0de8-49ab-b339-0b2a19a97e70",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Wesley Massuda <wesley.massuda@gmail.com>"
+    }
+  }
+}
