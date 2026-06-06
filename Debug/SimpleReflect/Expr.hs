@@ -92,15 +92,25 @@ reduced :: Expr -> Maybe Expr
 reduced Expr{ reduced' = r } = r
 reduced (BinExpr e l r) =  reduced (applyBinOp e l r)
 
--- | If the expression is a negation (a negative numeric constant or a
---   @negate e@), return the (positive) operand. Used for sign normalization.
+-- | If the expression is a negation (a negative numeric constant, a
+--   @negate e@, or a product with a negative constant factor), return the
+--   (positive) operand. Used for sign normalization.
 asNegation :: Expr -> Maybe Expr
 asNegation e
     | Just n <- intExpr    e, n < 0     = Just (fromInteger (negate n))
     | Just d <- doubleExpr e, d < 0     = Just (fromDouble  (negate d))
+    | Just e' <- negatedProduct e       = Just e'
     | otherwise                         = negatedOf e
   where negatedOf Expr{ negated' = n } = n
         negatedOf _                    = Nothing
+        -- A product with a negative constant factor is a negation, since
+        -- @(-c) * y == negate (c * y)@ for any @y@. (Only products carrying a
+        -- constant factor are tagged 'BinExpr's, which is exactly the case we
+        -- can detect here.) This lets @a + (-0.5)*y@ print as @a - 0.5*y@.
+        negatedProduct (BinExpr o l r)
+            | opName o == " * ", isConstant l, Just l' <- asNegation l = Just (applyBinOp o l' r)
+            | opName o == " * ", isConstant r, Just r' <- asNegation r = Just (applyBinOp o l r')
+        negatedProduct _ = Nothing
 
 asAbs :: Expr -> Maybe Expr
 asAbs Expr{ absed' = a } = a
@@ -324,6 +334,25 @@ distributeOp o = o { applyBinOp = distributeConstant o }
 mergeable :: BinOp -> BinOp -> Bool
 mergeable outer inner = commutative outer && associative outer && opName outer == opName inner
 
+-- | The identity element of an operator, for the cases where collapsing it
+--   away is safe: @0@ for @+@ and @1@ for @*@. This handles identities that
+--   only appear after constant folding (e.g. @x + 25 - 25@ or @x * 4 / 4@),
+--   matching how a literal @x + 0@ / @x * 1@ already collapses.
+identityElem :: BinOp -> Maybe Expr
+identityElem o
+    | opName o == " + " = Just 0
+    | opName o == " * " = Just 1
+    | otherwise         = Nothing
+
+-- | Like 'BinExpr', but collapses an operand that equals the operator's
+--   identity element (e.g. @x + 0@ becomes @x@). Needed because constant
+--   folding can produce an identity, as in @x + 25 - 25@ => @x + 0@ => @x@.
+binExprId :: BinOp -> Expr -> Expr -> Expr
+binExprId e l r
+    | Just i <- identityElem e, isConstant r, r == i = l
+    | Just i <- identityElem e, isConstant l, l == i = r
+    | otherwise                                      = BinExpr e l r
+
 distributeConstant :: BinOp -> Expr -> Expr -> Expr
 --- If we can distribute to left side and untag BinExpr on right side
 distributeConstant op (BinExpr e1 l1 r1) (BinExpr e2 l r) | mergeable op e1 && mergeable op e2 && isConstant l1 && isConstant l=  distributeConstant e1 (rewriteReducedBinOp $ BinExpr op l1 l) (applyBinOp e2 r1 r)
@@ -331,18 +360,18 @@ distributeConstant op (BinExpr e1 l1 r1) (BinExpr e2 l r) | mergeable op e1 && m
 distributeConstant op (BinExpr e1 l1 r1) (BinExpr e2 l r) | mergeable op e1 && mergeable op e2 && isConstant r1 && isConstant r=  distributeConstant e1 (rewriteReducedBinOp $ BinExpr op r1 r) (applyBinOp e2 l1 l)
 distributeConstant op (BinExpr e1 l1 r1) (BinExpr e2 l r) | mergeable op e1 && mergeable op e2 && isConstant l  && isConstant r1=  distributeConstant e1 (rewriteReducedBinOp $ BinExpr op r1 l) (applyBinOp e2 l1 r)
 --- If only one side is a BinExpr search for constants and simplify
-distributeConstant op (BinExpr e l r ) a | mergeable op e && isConstant l && isConstant a =  BinExpr e (rewriteReducedBinOp $ BinExpr op l a) r
-distributeConstant op (BinExpr e l r ) a | mergeable op e && isConstant r && isConstant a =  BinExpr e l (rewriteReducedBinOp $ BinExpr op r a)
-distributeConstant op a (BinExpr e l r) | mergeable op e && isConstant l && isConstant a =  BinExpr e (rewriteReducedBinOp $ BinExpr op l a) r
-distributeConstant op a (BinExpr e l r) | mergeable op e && isConstant r && isConstant a =  BinExpr e l (rewriteReducedBinOp $ BinExpr op r a)
+distributeConstant op (BinExpr e l r ) a | mergeable op e && isConstant l && isConstant a =  binExprId e (rewriteReducedBinOp $ BinExpr op l a) r
+distributeConstant op (BinExpr e l r ) a | mergeable op e && isConstant r && isConstant a =  binExprId e l (rewriteReducedBinOp $ BinExpr op r a)
+distributeConstant op a (BinExpr e l r) | mergeable op e && isConstant l && isConstant a =  binExprId e (rewriteReducedBinOp $ BinExpr op l a) r
+distributeConstant op a (BinExpr e l r) | mergeable op e && isConstant r && isConstant a =  binExprId e l (rewriteReducedBinOp $ BinExpr op r a)
 --- Move the constant to the top
-distributeConstant op (BinExpr e l r ) a | mergeable op e && isConstant r =  BinExpr e  (applyBinOp op l a)  r
-distributeConstant op (BinExpr e l r ) a | mergeable op e && isConstant l =  BinExpr e  l (applyBinOp op r a)
-distributeConstant op a (BinExpr e l r) | mergeable op e && isConstant r =  BinExpr e  (applyBinOp op l a)  r
-distributeConstant op a (BinExpr e l r) | mergeable op e && isConstant l =  BinExpr e  l (applyBinOp op r a)
+distributeConstant op (BinExpr e l r ) a | mergeable op e && isConstant r =  binExprId e  (applyBinOp op l a)  r
+distributeConstant op (BinExpr e l r ) a | mergeable op e && isConstant l =  binExprId e  l (applyBinOp op r a)
+distributeConstant op a (BinExpr e l r) | mergeable op e && isConstant r =  binExprId e  (applyBinOp op l a)  r
+distributeConstant op a (BinExpr e l r) | mergeable op e && isConstant l =  binExprId e  l (applyBinOp op r a)
 -- If is constant keep tagged as BinExpr
 distributeConstant op a b | isConstant a && isConstant b = applyBinOp op a b
-distributeConstant op a b | isConstant a || isConstant b = BinExpr op a b
+distributeConstant op a b | isConstant a || isConstant b = binExprId op a b
 -- Don't tag if nothing is constant
 distributeConstant op a b = applyBinOp op a b
 
@@ -505,9 +534,23 @@ powRule a b fallback
     | b == 1    = a
     | otherwise = fallback
 
+-- | Distribute a power over a product so that a constant factor in the base
+--   becomes foldable: @(x * 5) ** c@  =>  @x ** c * 5 ** c@. This only fires
+--   when a constant factor is present (mirroring 'distributeUnaryAbs' /
+--   'distributeUnaryRecip'), which then lets the surrounding @*@ fold the
+--   exposed constant (e.g. @2 * (x * 5) ** 1.85@ => @x ** 1.85 * 39.27...@).
+--
+--   Note: @(a*b)**c == a**c * b**c@ holds for an integer exponent or a
+--   non-negative base, but is not exact for a negative base with a fractional
+--   exponent (e.g. @((-2)*(-5))**0.5@ vs @(-2)**0.5 * (-5)**0.5@).
+distributePow :: Expr -> Expr -> Expr -> Expr
+distributePow (BinExpr e l r) expo fallback
+    | opName e == " * " && (isConstant l || isConstant r) = (l ** expo) * (r ** expo)
+distributePow _ _ fallback = fallback
+
 withReduce2Pow :: BinOp -> (Expr -> Expr -> Expr)
 withReduce2Pow r a b =
-                    let rr = powRule a b (applyBinOp r a b)
+                    let rr = powRule a b (distributePow a b (applyBinOp r a b))
                         ra = reduced a
                         rb = reduced b
                         red = (\a' b' -> powRule a' b' (withReduce2Pow r a' b')) <$> ra <*> rb

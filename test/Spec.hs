@@ -73,6 +73,11 @@ cases =
   , ("1+(2+(3+x)) = 6 + x",   show (1 + (2 + (3 + x))),    "6 + x")
   , ("x + 2 + 3 + y folds",   show (x + 2 + 3 + y),        "x + y + 5")
   , ("sum [1..5] stays flat", show (sum [1..5] :: Expr),   "1 + 2 + 3 + 4 + 5")
+  -- folding constants to the identity collapses the term:
+  , ("x + 25 - 25 = x",       show (x + 25 - 25),          "x")
+  , ("x - 25 + 25 = x",       show (x - 25 + 25),          "x")
+  , ("x + 25 - 30 = x - 5",   show (x + 25 - 30),          "x - 5")
+  , ("x + 2.5 - 2.5 = x",     show (x + 2.5 - 2.5),        "x")
   -- ...but additive folding must NOT cross other operators:
   , ("2 + 3 * x untouched",   show (2 + 3 * x),            "2 + 3 * x")
   , ("2 + (x - 3) normalization", show (2 + (x - 3)),          "x - 1")
@@ -116,8 +121,11 @@ cases =
   , ("5 / x = 5 / x",            show (5 / x),            "5 / x")
   , ("5 / 2 = 5 / 2",            show (5 / 2 :: Expr),    "5 / 2")
   , ("1 / recip x = x",          show (1 / recip x),      "x")
-  , ("(a / 2) * 2 = a * 1.0",    show ((a / 2) * 2),      "a * 1.0")
-  , ("(a * 2) / 2 = a * 1.0",    show ((a * 2) / 2),      "a * 1.0")
+  , ("(a / 2) * 2 = a",          show ((a / 2) * 2),      "a")
+  , ("(a * 2) / 2 = a",          show ((a * 2) / 2),      "a")
+  , ("x * 4 / 4 = x",            show (x * 4 / 4),        "x")
+  , ("x / 4 * 4 = x",            show (x / 4 * 4),        "x")
+  , ("x * 4 / 2 = x * 2.0",      show (x * 4 / 2),        "x * 2.0")
   , ("(-1) * (-x) = x",          show ((-1) * (-x)),      "x")
   , ("(-1) * (-1) = 1",          show (((-1) :: Expr) * (-1)), "1")
   , ("negate (x + 5) untouched", show (negate (x + 5)),       "-(x + 5)")
@@ -137,6 +145,16 @@ cases =
   , ("(2 - 1) ** a = 1",         steps ((2 - 1) ** a),    "1 => 1")
   , ("(2 - 2) ** a = 0",         steps ((2 - 2) ** a),    "0 => 0")
   , ("a ** (2 - 2) = 1",         steps (a ** (2 - 2)),    "1 => 1")
+
+  -- Power distributes over a product to expose a constant factor -----------
+  , ("(x*5)**2 = x**2 * 25.0",     show ((x*5)**2),         "x**2 * 25.0")
+  , ("(x*5)**1.85 distributes",    show ((x*5)**1.85),      "x**1.85 * 19.637875755794113")
+  , ("2*(x*5)**1.85 folds const",  show (2 * (x*5)**1.85),  "x**1.85 * 39.275751511588226")
+  , ("2*(x*5)**2 folds const",     show (2 * (x*5)**2),     "x**2 * 50.0")
+  , ("(x*5*2)**3 nested fold",     show ((x*5*2)**3),       "x**3 * 1000.0")
+  , ("(x*y)**1.85 untouched",      show ((x*y)**1.85),      "(x * y)**1.85")
+  , ("(x*5)**1 = x * 5",           show ((x*5)**1),         "x * 5")
+  , ("(x*5)**0 = 1",               show ((x*5)**0),         "1")
 
   -- Specific exponential & logarithmic tests -------------------------------
   , ("exp 0 = 1",                show (exp 0 :: Expr),    "1")
@@ -190,6 +208,10 @@ cases =
   , ("x - (-1.5) = x + 1.5",      show (x - (-1.5)),       "x + 1.5")
   , ("x + 2 + (-3) = x - 1",      show (x + 2 + (-3)),     "x - 1")
   , ("x + negate (a+b)",          show (x + negate (a + b)), "x - (a + b)")
+  -- negative constant *factor* of a product also normalizes the sign:
+  , ("a + (-0.5)*(x*x)",          show (a + (-0.5) * (x*x)), "a - 0.5 * (x * x)")
+  , ("p*v + (-0.4)*t",            show (p*v + (-0.4)*t),    "p * v - 0.4 * t")
+  , ("a + 0.5*x untouched",       show (a + 0.5*x),         "a + 0.5 * x")
 
   -- Documented examples (README / module haddock) --------------------------
   , ("sum [1..5]",       show (sum [1..5] :: Expr),       "1 + 2 + 3 + 4 + 5")
